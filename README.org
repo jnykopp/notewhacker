@@ -1,0 +1,85 @@
+* Notewhacker
+
+  A game for learning sheet music notation.
+
+  Connect your General Midi-enabled musical instrument of choice to
+  your computer. Start Notewhacker and try to hit your instrument's
+  keys matching notes scrolling on a staff on your screen.
+
+* Installing and running
+
+  Download the software (e.g. clone from git). Modify =midi.lisp= file
+  so that =*midi-device-pathname*= points to the OSS-compatible device
+  file which corresponds your General Midi instrument.
+
+  Easiest way to get the software running is to use [[http://www.quicklisp.org/][Quicklisp]]:
+  - Install Quicklisp
+  - Copy or move the =notewhacker= directory into quicklisp's
+    local-projects directory.
+  - Run in Lisp repl =(ql:quickload "notewhacker")=. This will
+    automatically download and compile the dependencies and compile
+    Notewhacker.
+  - Start the program with =(notewhacker:main)=.
+
+** System requirements
+
+   - Reasonably recent Linux operating system (might work on other
+     Unixes too)
+     - [[http://www.opensound.com/][OSS]] or [[http://www.alsa-project.org/main/index.php/Main_Page][ALSA]]
+     - [[http://www.libsdl.org/][Simple Directmedia Layer]] library
+   - OpenGL 2.0 compatible graphics card and drivers
+     - Related libraries for Linux
+   - [[http://ccl.clozure.com/][Clozure Common Lisp]] or [[http://www.sbcl.org/][SBCL]] implementation of Common Lisp
+   - General Midi compatible musical instrument or somesuch
+
+* Demo
+
+  Short demo at [[http://youtu.be/I-SWG3A_mAQ][YouTube]].
+
+* Acknowledgements
+
+  This project includes some parts of code derived from work of [[http://3bb.cc/tutorials/cl-opengl/getting-started.html][3b]]
+  (see comments in files =notewhacker.lisp= function =main=, and
+  =graphics.lisp= function =with-vecto-canvas-as-texture=). The
+  derived code is published here with the original author's consent.
+
+  The font for musical notation (=feta.ttf=) is copied from project
+  [[http://www.denemo.org/HomePage][Denemo]]. The font was originally derived from [[http://www.lilypond.org/][Lilypond]] project. See
+  file =LICENSE.feta.ttf.txt= for more information.
+
+  The text font (=CrimsonText_Roman.ttf=) was created by Sebastian
+  Kosch and licensed with [[http://scripts.sil.org/OFL_web][SIL Open Font License]] and redistributed with
+  Notewhacker in its original version. It was downloaded from
+  [[http://www.fontsquirrel.com/][Font Squirrel]]. See file =SIL Open
+  Font License.CrimsonText-Roman.ttf.txt= for more information.
+
+  Finally, this software exists thanks to [[http://lispinsummerprojects.org/][Lisp In Summer Projects]]
+  contest.
+
+* To do
+
+  - Multiple staffs (e.g. G-clef and F-clef at the same time)
+  - Resizeable window
+  - More intelligence to target chord creation
+    - User configurable note range
+    - Reasonable chords. Now they are totally random and can span more
+      than an octave.
+    - Learning: notes which player finds difficult more often
+  - Key signature changes during game
+  - Accordion-mode (Handling Stradella Bass System)
+  - Reading target notes from a midi file to enable practising a piece
+
+* Known bugs
+
+  On some graphics cards all of the textures have a thin transparent
+  line going across them. This happens e.g. on Nvidia Quadro NVS
+  4200M. The software was developed using Intel HD4000 graphics card,
+  which doesn't expose this bug.
+
+* Author
+
+  Janne Nykopp <newcup@iki.fi>
+
+* License
+
+  [[http://www.gnu.org/copyleft/gpl.html][GNU General Public License Version 3, 29 June 2007]]
