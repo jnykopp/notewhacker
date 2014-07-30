@@ -6,6 +6,8 @@
   your computer. Start Notewhacker and try to hit your instrument's
   keys matching notes scrolling on a staff on your screen.
 
+  2014-07-31, version 0.0.2 (See [[CHANGELOG.org]])
+
 * Installing and running
 
   Download the software (e.g. clone from git). Modify =midi.lisp= file
@@ -32,9 +34,27 @@
    - [[http://ccl.clozure.com/][Clozure Common Lisp]] or [[http://www.sbcl.org/][SBCL]] implementation of Common Lisp
    - General Midi compatible musical instrument or somesuch
 
+** Changing the visible staffs and midi channels
+
+   - To e.g. remove the staff with the f-clef (𝄢) modify file
+     =notewhacker.lisp= function =gen-game-loop= by removing the
+     s-expression starting =(f-staff (make-instance...=.
+   - By default g-clef (𝄞) only matches events in midi channel 0 and
+     g-clef (𝄢) events in channel 1. To change both recognize all
+     channels, change in the aforementioned file and function the
+     lines with =:midi-channel 0= and =:midi-channel 1= both to
+     =:midi-channel nil=.
+
+** Keyboard control (mostly for testing or debugging)
+
+   - On (Finnish/Swedish) QWERTY keyboard key =C= corresponds to C4
+     note, =F= to C4 sharp etc. When hit while holding left shift they
+     generate midi channel 1 events, channel 0 otherwise. For testing
+     purposes; game can't be played reasonably using keyboard.
+
 * Demo
 
-  Short demo at [[http://youtu.be/I-SWG3A_mAQ][YouTube]].
+  Short demo of version 0.0.1 at [[http://youtu.be/I-SWG3A_mAQ][YouTube]].
 
 * Acknowledgements
 
@@ -58,16 +78,17 @@
 
 * To do
 
-  - Multiple staffs (e.g. G-clef and F-clef at the same time)
-  - Resizeable window
-  - More intelligence to target chord creation
-    - User configurable note range
-    - Reasonable chords. Now they are totally random and can span more
-      than an octave.
-    - Learning: notes which player finds difficult more often
-  - Key signature changes during game
-  - Accordion-mode (Handling Stradella Bass System)
-  - Reading target notes from a midi file to enable practising a piece
+  - Resizeable window.
+  - More intelligence to target chord creation.
+    - User configurable note range.
+    - Reasonable chords. Now they are totally random within a certain
+      predetermined range.
+    - Learning: generate target notes which player finds difficult
+      more often.
+  - Key signature changes during game.
+  - Accordion-mode (Handling Stradella Bass System).
+  - Reading target notes from a midi file to enable practising a
+    piece.
 
 * Known bugs
 

@@ -42,21 +42,88 @@
   the new score."
   (+ old-score (* (1+ (/ combo 2)) points-awarded)))
 
+(defstruct queue
+  "Simple queue implementation. Tail always points to the last
+element."
+  (items nil :type list)
+  (tail nil :type list))
+
+(defun push-queue (q item)
+  "Push the ITEM in queue Q. Return Q."
+  (if (endp (queue-items q))
+      (setf (queue-items q) (list item)
+            (queue-tail q) (queue-items q))
+      (setf (cdr (queue-tail q)) (list item)
+            (queue-tail q) (cdr (queue-tail q))))
+  q)
+
+(defun peek-queue (q)
+  "Return the first item in Q"
+  (first (queue-items q)))
+
+(defun pop-queue (q)
+  "Pop the first item from Q"
+  (prog1
+      (pop (queue-items q))
+    ;; Remove also the tail when queue is empty. (Tail is sometimes
+    ;; used.)
+    (when (queue-empty-p q)
+      (setf (queue-tail q) nil))))
+
+(defun queue-empty-p (q)
+  "Check if Q is empty"
+  (endp (queue-items q)))
+
+(defclass game-staff (graphics-staff)
+  ((target-chords
+    :accessor target-chords :initarg :target-chords :initform (make-queue)
+    :documentation "Targets scrolling on this staff. Queue of
+    instances of graphics-chord. The current target is the first
+    element (smallest x-coordinate). New elements go to back of the
+    queue. Will be drawn as the last elements on the screen. Target
+    notes advance at the speed of target-note-x-vel always.")
+   (miss-notes
+    :accessor miss-notes :initarg :miss-notes :initform nil
+    :documentation "List of player's misses (hit the wrong note) on
+    this staff. These also advance at the speed of
+    target-note-x-vel.")
+   (key-range
+    :accessor key-range :initarg :key-range :initform nil
+    :documentation "What range of keys (MKN) target this staff. Cons
+    of min and max MKN or nil if no range specified. Used for matching
+    Midi events to staffs.")
+   (midi-channel
+    :accessor midi-channel :initarg :midi-channel :initform nil
+    :documentation "Events with matching channel information target
+    this staff. If nil, all events match. Used for matching Midi
+    events to staff."))
+  (:documentation "Class holding information of a staff and its state
+  in the game."))
+
+(defgeneric target-chords-list (inst)
+  (:documentation "Get the target-chords as a list."))
+(defmethod target-chords-list ((inst graphics-staff))
+  "List-like interface for the internal implementation of
+  target-chords."
+  (queue-items (target-chords inst)))
+
+(defgeneric push-target-chord (inst item)
+  (:documentation "Push a target chord at the end of the target chord
+  list of INST"))
+(defmethod push-target-chord ((inst graphics-staff) item)
+  (push-queue (target-chords inst) item))
+
+(defmethod draw :after ((inst game-staff))
+  "Draw one staff. Relies on graphics-staff's draw, then just draws
+the notes and target chords on top of it."
+  (dolist (elem (append (target-chords-list inst) (miss-notes inst)))
+    (draw elem)))
+
 (defclass game-state ()
   ((staffs
     :accessor staffs :initarg :staffs
-    :documentation "The staffs in the game.")
-   (target-chords
-    :accessor target-chords :initarg :target-chords :initform nil
-    :documentation "Target chords. Instances of
-   graphics-chord. Ordered list, where the current target is the first
-   element (smallest x-coordinate). New elements go to back of the
-   list. Will be drawn as the last elements on the screen. Target
-   notes advance at the speed of target-note-x-vel always.")
-   (miss-notes
-    :accessor miss-notes :initarg :miss-notes :initform nil
-    :documentation "List of player's misses (hit the wrong
-    note). These also advance at the speed of target-note-x-vel.")
+    :documentation "The staffs in the game. List of instances of
+    game-staff.")
    (target-note-x-vel
     :accessor target-note-x-vel :initarg :target-note-x-vel :initform -0.5
     :documentation "Global X-velocity for all target notes. In target
@@ -85,11 +152,10 @@
 
 (defmethod draw ((inst game-state))
   "Draw the game-state."
+  (dolist (elem (other-drawables inst))
+    (draw elem))
   (dolist (staff (staffs inst))
     (draw staff))
-  (dolist (elem (append (miss-notes inst) (other-drawables inst)
-                        (target-chords inst)))
-    (draw elem))
   ;; Finally draw the scores etc. TODO: Hardcoded coordinates...
   (draw-string "Score:" 10 565)
   (draw-number (score inst) 150 565)
@@ -103,9 +169,19 @@
     (incf x (draw-string "/" x 530))
     (incf x (draw-number (num-of-misses inst) x 530))))
 
-(defun get-current-target (game-state)
-  "Return the current target note (instance of graphics-chord)."
-  (first (target-chords game-state)))
+(defun current-target (staff)
+  "Get the current target of the STAFF."
+  (peek-queue (target-chords staff)))
+
+(defun remove-current-target (staff)
+  "Remove (and return) the current target from STAFF."
+  (pop-queue (target-chords staff)))
+
+(defun get-current-targets (game-state)
+  "Return a list of the current target notes (instances of
+graphics-chord). List will be at maximum as long as there are staffs
+in the game."
+  (mapcar #'current-target (staffs game-state)))
 
 (defun %update-lifetimes (game-state)
   "Update the lifetimes of drawables and remove dead elements."
@@ -113,167 +189,272 @@
            (remove-if
             (lambda (x) (and (lifetime x) (< (lifetime x) 0)))
             elem-list)))
-    (with-accessors ((mn miss-notes) (od other-drawables)) game-state
-      (setf mn (remove-dead mn) od (remove-dead od))
-      (dolist (elem (append mn od))
-        (when (lifetime elem)
-          (decf (lifetime elem)))))))
+    (with-accessors ((od other-drawables)) game-state
+      ;; Remove dead
+      (setf od (remove-dead od))
+      (let (misses-of-all-staffs)
+        (dolist (staff (staffs game-state))
+          (with-accessors ((mn miss-notes)) staff
+            (setf mn (remove-dead mn))
+            (setf misses-of-all-staffs (append misses-of-all-staffs mn))))
+        ;; Update lifetimes
+        (dolist (elem (append misses-of-all-staffs od))
+          (when (lifetime elem)
+            (decf (lifetime elem))))))))
 
 (defun %update-positions (game-state)
   "Update game-state's element positions."
-  (with-accessors
-        ((tc target-chords) (mn miss-notes) (od other-drawables)) game-state
+  (with-accessors ((od other-drawables) (tgt-x-vel target-note-x-vel)
+                   (staffs staffs)) game-state
     ;; Target notes and missed notes travel at the target-note
-    ;; velocity,
-    (dolist (elem (append tc mn))
-      (with-accessors ((pos pos)) elem
-        (setf pos (cons (+ (car pos) (target-note-x-vel game-state))
-                        (cdr pos)))))
+    ;; velocity.
+    (dolist (staff staffs)
+      (dolist (elem (append (target-chords-list staff) (miss-notes staff)))
+        (with-accessors ((pos pos)) elem
+          (setf pos (cons (+ (car pos) tgt-x-vel) (cdr pos))))))
     ;; Other drawables obey their own velocity.
     (dolist (elem od)
       (with-accessors ((pos pos) (vel velocity)) elem
         (setf pos (cons-op #'+ pos vel))))))
 
+(defun staff-matches-channel-p (staff channel)
+  "Does a STAFF match the Midi event's CHANNEL."
+  (let ((c (midi-channel staff)))
+    (or (null c) (= channel c))))
+
+(defun staff-matches-key-p (staff key)
+  "Does a STAFF match the Midi event's KEY."
+  (with-accessors ((kr key-range)) staff
+    (if kr
+        (destructuring-bind (min-k . max-k) kr
+          (and (or (null min-k) (<= min-k key))
+               (or (null max-k) (<= key max-k))))
+        t)))
+
+(defun select-staff-for-event (staffs event)
+  "Return which staff from list of STAFFS the given midi-event EVENT
+is for. Basically, the staff's midi-channel must match EVENT's midi
+channel and staff's key-range must include EVENT's key.
+
+If many staffs match, choose the one for which the event is closest to
+any note of the target chord. If more than one staff's target are
+equally close, choose the first matching staff in STAFFS list.
+
+Might also return nil if no staffs match!"
+  (with-accessors ((ev-chan get-channel) (ev-key get-key)) event
+    (labels ((dist-to-target (tgt-chord)
+               "Calculate the distance from EV-KEY to closest note in
+                current target chord TGT-CHORD."
+               (loop :for note :in (mkn-list tgt-chord)
+                  :minimizing (abs (- note ev-key))))
+             (dtt (staff)
+               "Just a helper for using dist-to-target."
+               (dist-to-target (current-target staff))))
+      (let ((staffs-matching-event
+             (remove-if-not
+              (lambda (x) (and (staff-matches-channel-p x ev-chan)
+                               (staff-matches-key-p x ev-key)))
+              staffs)))
+        (first
+         (if (< (length staffs-matching-event) 2)
+             staffs-matching-event
+             (stable-sort staffs-matching-event
+                          (lambda (x y) (< (dtt x) (dtt y))))))))))
+
+(defun group-events-by-staff (staffs events)
+  "Return a hash table with key being a staff in STAFFS and value
+  being a list of events for that staff from list of EVENTS."
+  (let ((hash (make-hash-table)))
+    (dolist (ev events hash)
+      (let ((s (select-staff-for-event staffs ev)))
+        (when s
+          (push ev (gethash s hash)))))))
+
+(defun %create-miss-chord-for-staff (staff miss-events)
+  "Create missed note markers for STAFF from MISS-EVENTS."
+  (let ((miss-chord (create-chord (mapcar 'get-key miss-events) staff)))
+    (setf (car (pos miss-chord))
+          (car (pos (current-target staff))))
+    (setf (color miss-chord) (list 1 0 0 1))
+    (setf (lifetime miss-chord) 50)
+    (setf (effects miss-chord)
+          (lambda (inst)
+            (color-fade-effect inst :a (lambda (x) (* x .9)))))
+    miss-chord))
+
 (defun %check-hits-misses (game-state events)
-  "Check if the player scored some hits. Return a list of new miss-elements."
+  "Check if the player scored some hits. Return a list of objects to
+be appended to game-state's other drawable objects."
   ;; TODO: Split to two distinct functions.
+  ;;
+  ;; TODO: Matching ignores now midi channel and key range altogether!
+  (declare (optimize (debug 3)))
   (when events
-    ;; TODO: doesn't work for multiple staffs right now
-    (let* ((list-of-target-mkns (list (mkn-list (get-current-target game-state))))
-           (hitp (which-targets-hit list-of-target-mkns))
-           (miss-mkns (return-miss-mkns events list-of-target-mkns))
-           misses
+    (let* ((curr-tgts (get-current-targets game-state))
+           (list-of-target-mkns
+            (loop :for tgt in curr-tgts :when tgt :collect (mkn-list tgt)))
+           (hit-tgt-chord-list (filter-targets-hit list-of-target-mkns))
+           (miss-events (return-miss-events events list-of-target-mkns))
            pieces)
-      (when miss-mkns
-        ;; Create missed note markers
-        (let ((miss-chord (create-chord miss-mkns (first (staffs game-state)))))
-          (setf (car (pos miss-chord))
-                (car (pos (get-current-target game-state))))
-          (setf (color miss-chord) (list 1 0 0 1))
-          (setf (lifetime miss-chord) 200)
-          (setf (effects miss-chord)
-                (lambda (inst)
-                  (color-fade-effect inst :a (lambda (x) (* x .9)))))
-          (setf (combo game-state) 0)
-          (incf (num-of-misses game-state))
-          (pushnew miss-chord misses)))
-      (when hitp
-        (let ((hit-note (get-current-target game-state)))
-          (incf (num-of-hits game-state) (length (mkn-list hit-note)))
-          (with-accessors ((score score) (tc target-chords) (combo combo))
-              game-state
-            (setf score
-                  (calculate-new-score
-                   score (get-target-points (mkn-list hit-note)) combo))
-            (incf combo)
-            (detach-elem-from-paren hit-note)
-            (setf tc (rest tc)))
-          (let ((tmp-pieces (disassemble-graphics-element hit-note)))
-            ;; Make them fly around and dwindle.
-            (dolist (piece tmp-pieces)
-              (setf (lifetime piece) 200)
-              (setf (velocity piece) (cons (/ (- (random 50) 25) 5)
-                                           (/ (- (random 50) 25) 5)))
-              (let ((rand-angle (/ (- (random 50) 25) 2)))
-                (setf (effects piece)
-                      (let ((rot-angle rand-angle))
-                        (lambda (inst)
-                          (color-fade-effect inst
-                                             :g (lambda (x) (+ x .01))
-                                             :a (lambda (x) (* x .9)))
-                          (gl:rotate rot-angle 0 0 1)
-                          (incf rot-angle rand-angle)))))
-              (push piece pieces)))))
-      (values misses pieces))))
+      (when miss-events
+        ;; Game bookkeeping updates
+        (setf (combo game-state) 0)
+        (incf (num-of-misses game-state) (length miss-events))
+        ;; Miss events don't belong directly to any staff (unless
+        ;; staff has dedicated midi channel or key range). Pick a
+        ;; staff that best matches the event. For each miss, create a
+        ;; missed note marker for best matching staff.
+        (loop
+           :for staff :being :the :hash-keys :in
+           (group-events-by-staff (staffs game-state) miss-events)
+           :using (hash-value misses-for-staff)
+           :do (pushnew
+                (%create-miss-chord-for-staff staff misses-for-staff)
+                (miss-notes staff))))
+      (when hit-tgt-chord-list
+        (with-accessors ((score score) (combo combo) (staffs staffs)) game-state
+          ;; One midi event might match target of multiple staffs
+          ;; (if staff ranges are overlapping). Thus, go through all
+          ;; staffs with each hit chord.
+          (dolist (staff staffs)
+            (let* ((curr-tgt (current-target staff))
+                   (curr-tgt-mkn-list (mkn-list curr-tgt)))
+              (when (target-hit-p curr-tgt-mkn-list)
+                (incf (num-of-hits game-state) (length curr-tgt-mkn-list))
+                (setf score (calculate-new-score
+                             score (get-target-points curr-tgt-mkn-list) combo))
+                (incf combo)
+                (detach-elem-from-paren curr-tgt)
+                (remove-current-target staff)
+                (let ((tmp-pieces (disassemble-graphics-element curr-tgt)))
+                  ;; Make the pieces fly around and dwindle.
+                  (dolist (piece tmp-pieces)
+                    (setf (lifetime piece) 200)
+                    (setf (velocity piece) (cons (/ (- (random 50) 25) 5)
+                                                 (/ (- (random 50) 25) 5)))
+                    (let ((rand-angle (/ (- (random 50) 25) 2)))
+                      (setf (effects piece)
+                            (let ((rot-angle rand-angle))
+                              (lambda (inst)
+                                (color-fade-effect inst
+                                                   :g (lambda (x) (+ x .01))
+                                                   :a (lambda (x) (* x .9)))
+                                (gl:rotate rot-angle 0 0 1)
+                                (incf rot-angle rand-angle)))))
+                    (push piece pieces))))))))
+      pieces)))
 
-(defun %handle-target-out (game-state)
-  "Check if some target chords went out of the playing area (player
-  didn't hit them in time). Remove the chords from game-state's target
-  list, detach them from the staff and return them as a list of
-  drawable elements which can be appended to other-drawables list of
-  game-state."
-  (with-accessors ((tc target-chords) (tn-x-vel target-note-x-vel)) game-state
-    (let ((chords-out (remove-if (lambda (x) (> (car x) 0)) tc :key 'pos)))
-      (when chords-out
-        ;; Make the staff shake. TODO: Only works for one staff for now.
-        (setf (effects (first (staffs game-state)))
-              (let ((shake-for-this-many-frames 50))
-                (lambda (inst)
-                  (decf shake-for-this-many-frames)
-                  (when (< shake-for-this-many-frames 0)
-                    (setf (effects inst) nil))
-                  (flet ((rand-shake ()
-                           (* (random 10) (/ shake-for-this-many-frames 50.0))))
-                    (gl:translate (rand-shake) (rand-shake) 0)))))
-        ;; Slow the game down, take one life etc.
-        (setf tn-x-vel (* .5 tn-x-vel))
-        (decf (lives game-state))
-        ;; Remove fallen out targets from target notes. Target notes
-        ;; should be kept sorted.
-        (setf tc (sort (set-difference tc chords-out) #'<
-                       :key (lambda (x) (car (pos x))))))
-      ;; Detach fallen notes from staff and handle them otherwise too.
-      (dolist (fallen-chord chords-out chords-out)
-        (detach-elem-from-paren fallen-chord)
-        (setf (velocity fallen-chord) (cons #1=(/ (- (random 20) 10) 5) #1#))
-        (setf (lifetime fallen-chord) 200)
-        ;; Effect: make the fallen chord spin around and fade out.
-        (let ((rand-angle (/ (- (random 50) 25) 2)))
-          (setf (effects fallen-chord)
-                (let ((rot-angle rand-angle)
-                      (scl 1.1))
-                  (lambda (inst)
-                    (color-fade-effect inst
-                                       :a (lambda (x) (* x .8))
-                                       :r (lambda (x) (+ x .05)))
-                    (gl:rotate rot-angle 0 0 1)
-                    (gl:scale scl scl 1)
-                    (setf scl (* 1.1 scl))
-                    (incf rot-angle rand-angle)))))))))
+(defun %shake-staff (staff)
+  "Make the STAFF shake a bit."
+  (setf (effects staff)
+        (let ((shake-for-this-many-frames 50))
+          (lambda (inst)
+            (decf shake-for-this-many-frames)
+            (when (< shake-for-this-many-frames 0)
+              (setf (effects inst) nil))
+            (flet ((rand-shake ()
+                     (* (random 10) (/ shake-for-this-many-frames 50.0))))
+              (gl:translate (rand-shake) (rand-shake) 0))))))
 
-(defun %create-new-targets (game-state)
-  "Create new targets to hit, if it's time for that. Return a list of
-them."
-  ;; TODO: only works with one staff at the moment.
-  (let ((staff (first (staffs game-state)))
-        (tc (target-chords game-state)))
+(defun %create-target-out (fallen-chord)
+  "Convert a FALLEN-CHORD attached to a staff to a spinning, fading
+  chord not connected to any staff."
+  (detach-elem-from-paren fallen-chord)
+  (setf (velocity fallen-chord) (cons #1=(/ (- (random 20) 10) 5) #1#))
+  (setf (lifetime fallen-chord) 200)
+  ;; Effect: make the fallen chord spin around and fade out.
+  (let ((rand-angle (/ (- (random 50) 25) 2)))
+    (setf (effects fallen-chord)
+          (let ((rot-angle rand-angle)
+                (scl 1.1))
+            (lambda (inst)
+              (color-fade-effect inst
+                                 :a (lambda (x) (* x .8))
+                                 :r (lambda (x) (+ x .05)))
+              (gl:rotate rot-angle 0 0 1)
+              (gl:scale scl scl 1)
+              (setf scl (* 1.1 scl))
+              (incf rot-angle rand-angle)))))
+  fallen-chord)
+
+(defun %handle-targets-out (staff)
+  "See if targets have gone off the staff. For those that did, remove
+  these chords from staff's target list, detach them from staff, and
+  return a list of these chords as drawable elements (with effects)
+  which can be appended to other-drawables list of game state."
+  (let ((tgt-queue (target-chords staff)))
+    (let ((targets-out
+           (loop
+              :for target = (peek-queue tgt-queue)
+              :while (and target (< (car (pos target)) 0))
+              :collect (%create-target-out (pop-queue tgt-queue)))))
+      (when targets-out
+        (%shake-staff staff))
+      targets-out)))
+
+;;; TODO: User might need to modify this by hand! Implement a menu
+;;; system for in-game settings.
+(defun %create-new-target (staff score)
+  "Create new targets to hit in staff STAFF, if it's time for
+that. The SCORE may be used to generate targets of variable
+difficulty. Return the new target."
+  (let ((last-target (first (queue-tail (target-chords staff)))))
     ;; Create new targets when there are none, or the last target is
     ;; travelled far enough from the edge of the staff.
-    (when (or (null tc)
+    (when (or (null last-target)
               ;; TODO: fixed coordinate
-              (> (- (width staff) (car (pos (car (last tc))))) 150))
+              (> (- (width staff) (car (pos last-target))) 150))
       ;; TODO: Better choice at random notes. Learning? (Make player try
       ;; and hit difficult notes, which player had problems with
       ;; earlier.)
-      (flet ((random-note ()
-               (+ 52 (random 30))))
-        (let ((note-num (1+ (random (ceiling (/ (1+ (score game-state)) 500)))))
-              notes)
-          (dotimes (x note-num)
-            (pushnew (random-note) notes))
-          (when *debug*
-            (format t "Creating chord ~a~&"
-                    (mapcar (lambda (x)
-                              (multiple-value-list (mkn-to-scientific-notation x)))
-                            notes)))
-          (list (create-chord notes staff)))))))
+      (let ((base-key (if (eq (clef staff) 'f-clef)
+                          30
+                          55
+                          )))
+        ;; NOTE: At the moment, this is tuned for the keyboard input.
+        (flet ((random-note ()
+                 (+ base-key (random 17))
+                 ))
+          (let ((note-num (1+ (random (ceiling (/ (1+ score) 500)))))
+                notes)
+            (dotimes (x note-num)
+              (pushnew (random-note) notes))
+            (when *debug*
+              (format t "Creating chord ~a~&"
+                      (mapcar (lambda (x)
+                                (multiple-value-list (mkn-to-scientific-notation x)))
+                              notes)))
+            (create-chord notes staff)))))))
 
 (defun game-state-step (game-state events)
   "Execute one step in the game-state, update element positions, check for
 hits and misses etc. Return t, if game should still continue."
   (%update-lifetimes game-state)
   (%update-positions game-state)
-  (with-accessors ((mn miss-notes) (tc target-chords) (od other-drawables)) game-state
+  (with-accessors ((staffs staffs) (od other-drawables) (score score)
+                   (tn-x-vel target-note-x-vel)) game-state
     (when events
-      (multiple-value-bind (misses pieces)
-          (%check-hits-misses game-state events)
-        (setf mn (append mn misses)
-              od (append od pieces))
-        ;; If target hit (new pieces appeared), speed up a bit...
-        (when pieces (decf (target-note-x-vel game-state) 0.1))))
-    (setf od (append od (%handle-target-out game-state)))
-    (dolist (new-tgt (%create-new-targets game-state))
-      (setf tc (nconc tc (list new-tgt))))
+      ;; TODO: This doesn't work yet for many staffs!
+      (let ((pieces (%check-hits-misses game-state events)))
+        ;; If target hit (new pieces appeared), speed up a bit
+        (when pieces
+          (setf od (append od pieces))
+          (decf (target-note-x-vel game-state) 0.1))))
+    (let (fallen-chords)
+      (dolist (staff staffs)
+        ;; Check if targets fell out.
+        (setf fallen-chords (append fallen-chords (%handle-targets-out staff)))
+        ;; Create new targets for each staff.
+        (let ((new-tgt (%create-new-target staff score)))
+          (when new-tgt
+            (push-target-chord staff new-tgt))))
+      ;; If there were fallen off chords, slow the game down, take one
+      ;; life per fallen chord etc.
+      (let ((fallen-chords-num (length fallen-chords)))
+        (setf tn-x-vel (* (expt .5 fallen-chords-num) tn-x-vel))
+        (decf (lives game-state) fallen-chords-num))
+      ;; Append fallen chords to other drawables.
+      (setf od (append od fallen-chords)))
     (> (lives game-state) 0)))
 
 (defparameter *game-state* nil
@@ -319,12 +500,23 @@ hits and misses etc. Return t, if game should still continue."
   ;; TODO: *game-state* is global for debugging purposes (game can be
   ;; quit and the state still inspected afterwards). This could be a
   ;; closure for the returned function.
+  ;;
+  ;; TODO: Fixed coordinates!
+  ;;
+  ;; TODO: Each staff should have a target note generator function
+  ;; (from user-defined configuration).
   (setf *game-state*
-        (let ((staff (make-instance 'graphics-staff
-                                    :width 600 :clef 'g-clef
-                                    :key-signature "C Major"
-                                    :pos (cons 50 300))))
-          (make-instance 'game-state :staffs (list staff))))
+        (let ((g-staff (make-instance 'game-staff
+                                      :width 700 :clef 'g-clef
+                                      :key-signature "C Major"
+                                      :midi-channel 0
+                                      :pos (cons 50 350)))
+              (f-staff (make-instance 'game-staff
+                                      :width 700 :clef 'f-clef
+                                      :key-signature "C Major"
+                                      :midi-channel 1
+                                      :pos (cons 50 125))))
+          (make-instance 'game-state :staffs (list g-staff f-staff))))
   (lambda (new-events)
     (let ((game-continues (game-state-step *game-state* new-events)))
       (game-state-draw *game-state*)
@@ -374,6 +566,46 @@ to continue the game or quit."
          'quit) ;quit is a meta-state, will be recognized in main-loop
         (otherwise nil)))))
 
+;;; TODO: This map really only works for finnish/swedish
+;;; keyboard. Should be done using scancodes in keyboard handling
+;;; event loop and injecting midi events somehow to matcher's
+;;; `get-new-midi-events'. Current implementation is a quick and dirty
+;;; hack.
+(let ((keypress-to-mkn-map
+       ;; For list of keysym names, see
+       ;; lispbuilder-sdl/cffi/keysym.lisp
+       '(:sdl-key-less 55
+         :sdl-key-a 56
+         :sdl-key-z 57
+         :sdl-key-s 58
+         :sdl-key-x 59
+         :sdl-key-c 60
+         :sdl-key-f 61
+         :sdl-key-v 62
+         :sdl-key-g 63
+         :sdl-key-b 64
+         :sdl-key-n 65
+         :sdl-key-j 66
+         :sdl-key-m 67
+         :sdl-key-k 68
+         :sdl-key-comma 69
+         :sdl-key-l 70
+         :sdl-key-period 71
+         :sdl-key-minus 72
+         :sdl-key-world-68 73)))
+  (defun handle-kbd-event ()
+    "For debugging purposes. Read the keyboard status and return a
+  list of midi events, one for each new keypress / key release. See
+  `handle-midi-events-and-notify' for reference."
+    (loop :for (keysym mkn) :on keypress-to-mkn-map :by #'cddr
+       :for pressed-p = (sdl:key-pressed-p keysym)
+       :for released-p = (sdl:key-released-p keysym)
+       :when (or pressed-p released-p)
+       :collect (make-instance
+                 (if pressed-p 'note-on-midi-event 'note-off-midi-event)
+                 :channel (if (sdl:key-held-p :sdl-key-lshift) 1 0)
+                 :key mkn :velocity 127))))
+
 (defun main ()
   ;; TODO: Read config.
   ;; Part of this code is derived from tutorial made by 3b
@@ -400,21 +632,38 @@ to continue the game or quit."
 
     (setf *random-state* (make-random-state t))
 
+    ;; TODO: Keyboard handling as a midi event generator is quite a
+    ;; hack right now.
     (unwind-protect 
          (let (;; TODO: Now starts from the countdown. Should have a
                ;; game menu as the beginning point.
-               (current-state (gen-countdown 3)))
+               (current-state (gen-countdown 3))
+               extra-midi-events)       ;This is for kbd debugging
            (sdl:with-events ()
              (:quit-event () t)
              (:key-down-event ()
                               (when (sdl:key-pressed-p :sdl-key-escape)
                                 (sdl:push-quit-event))
                               (when (sdl:key-pressed-p :sdl-key-f1)
-                                (setf *debug* (not *debug*))))
+                                (setf *debug* (not *debug*)))
+                              (setf extra-midi-events (handle-kbd-event))
+                              (when *debug*
+                                (when extra-midi-events
+                                  (format t "new events: ~a~%" extra-midi-events))
+                                (format t "keys: ~a~%" (sdl:get-keys-state))))
+             (:key-up-event ()
+                            ;; This case needed only for kbd debugging!
+                            (setf extra-midi-events (handle-kbd-event))
+                            (when (and *debug* extra-midi-events)
+                              (format t "new events: ~a~%" extra-midi-events)))
              (:idle ()
                     (let* ((new-events
+                            ;; Concatenate extra-midi-events for kbd
+                            ;; debugging.
                             (handle-midi-events-and-notify
-                             (get-new-midi-events)))
+                             (prog1 (concatenate 'list extra-midi-events
+                                                 (get-new-midi-events))
+                               (setf extra-midi-events nil))))
                            (new-state (funcall current-state new-events)))
                       (if (eq new-state 'quit) ;quit is a special state
                           (sdl:push-quit-event)

@@ -1,0 +1,9 @@
+* Changelog
+
+** 0.0.2 (2014-07-31)
+   - Added support for multiple staffs.
+   - Added C-clef support.
+   - Keyboard can now be used for hitting certain range of notes. 
+
+** 0.0.1 (2013-09-30)
+   - First public release.

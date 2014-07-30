@@ -106,28 +106,17 @@
   (null (set-exclusive-or target-mkns
                           (intersection target-mkns *pressed-and-held-keys*))))
 
-(defun which-targets-hit (target-list)
+(defun filter-targets-hit (target-list)
   "Check if the pressed-and-held keys contain any of the target chords
   in TARGET-LIST (a list of chords, each chord being a list of midi
-  key numbers). Return the target chords that were matched. This
-  should only be called when new note-on events have been
-  received. Also removes matched targets from the
-  pressed-and-held-keys."
-  (let (matched-targets)
-    (dolist (target-mkns target-list)
-      (when (target-hit-p target-mkns)
-        (push target-mkns matched-targets)
-        (clear-given-keypresses target-mkns)))
-    matched-targets))
+  key numbers). Return the target chords that were matched."
+  (remove-if-not #'target-hit-p target-list))
 
-(defun return-miss-mkns (events target-list)
+(defun return-miss-events (events target-list)
   "User pressed some keys, creating new key-on-midi-events which are
 listed in EVENTS. There are target chords listed in TARGET-LIST (a
-list of chords, each chord being a list of midi key numbers). Collect
-the midi key number of each event that didn't hit any target note of
-any target chord, and return the collected midi key numbers as a
-list."
+list of chords, each chord being a list of midi key numbers). Return
+the events that didn't hit any target note of any target chord."
   (let ((all-target-mkns (reduce #'append target-list)))
-    (mapcar 'get-key
-            (remove-if (lambda (x) (find (get-key x) all-target-mkns))
-                       events))))
+    (remove-if (lambda (x) (find (get-key x) all-target-mkns))
+               events)))

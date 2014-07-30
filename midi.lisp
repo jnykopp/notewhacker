@@ -200,13 +200,19 @@ elements in correct order."
   ()
   (:documentation "A midi note-off event"))
 
+(defmethod print-object ((object note-midi-event) stream)
+  "Print note midi event"
+  (print-unreadable-object (object stream :type t)
+    (with-slots (key velocity channel) object
+      (format stream "midi key: ~a velocity: ~a channel: ~a" key velocity channel))))
+
 (defun midi-status-octet-p (octet)
   "Check if OCTET is a midi status octet."
   (> octet #b1111111))
 
 (defmacro with-default-midi-data-checking ((num-of-args raw-data ptr) &body body)
   "Wrap BODY in code that tests that midi data from RAW-DATA starting
-  from index PTR seems to be in order (right number of argument octets
+  from index PTR seems to be valid (right number of argument octets
   etc.). If it's not, a suitable value will be returned."
   (let ((num-of-args-gs (gensym "num-of-args"))
         (raw-data-gs (gensym "raw-data"))

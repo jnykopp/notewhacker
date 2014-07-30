@@ -148,7 +148,8 @@ sharp or nil as accidental."
   multiple-values."
   (ccase clef 
     (g-clef (values 1 -1))
-    (f-clef (values 3 5))))
+    (f-clef (values 3 5))
+    (c-clef (values 2 2))))
 
 (defclass notational-chord ()
   ((mkn-list

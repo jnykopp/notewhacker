@@ -57,7 +57,7 @@ bounding boxes."
 
 (defparameter *glyph-id-charcode-tbl*
   '((notehead . #x0056)
-    (c-clef   . #x1d121)
+    (c-clef   . #x00c5)
     (f-clef   . #x00c7)
     (g-clef   . #x00c9)
     (♯        . #x002e)
@@ -243,30 +243,30 @@ vecto font-loader loader instance) with SIZE."
        :texture texture :color color :width w :height h :bounding-box bb))))
 
 (defun create-texture-entity-for-notation-glyph
-    (glyph &optional (color (list 0 0 0 1)))
+    (glyph &key (color (list 0 0 0 1)))
   "Create a texture-entity for notational GLYPH."
   (let ((charcode (glyph-id-to-charcode glyph)))
     (when *debug* (format t "Creating texture-entity for ~a~&" glyph))
     (create-texture-entity-from-string-with-vecto (vector charcode) *notation-font-size*
                                           *notation-font-loader* color)))
 
-(defun create-texture-entity-for-string (string &optional (color (list 0 0 0 1)))
+(defun create-texture-entity-for-string (string &key (color (list 0 0 0 1)) (size 1))
   "Create a texture-entity for a string STRING."
   (when *debug* (format t "Creating texture-entity for ~a~&" string))
-  (create-texture-entity-from-string-with-vecto string *text-font-size*
+  (create-texture-entity-from-string-with-vecto string (* size *text-font-size*)
                                         *text-font-loader* color))
 
-(defun create-texture-entity-for-integer (value &optional (color (list 0 0 0 1)))
+(defun create-texture-entity-for-integer (value &key (color (list 0 0 0 1)))
   "Create a texture-entity for a single integer with VALUE."
-  (create-texture-entity-for-string (format nil "~d" value) color))
+  (create-texture-entity-for-string (format nil "~d" value) :color color))
 
-(defun create-texture-entity-for (thing &optional (color (list 0 0 0 1)))
+(defun create-texture-entity-for (thing &key (color (list 0 0 0 1)) (size 1))
   "Create a texture-entity for THING."
   (ctypecase thing
-    (string (create-texture-entity-for-string thing color))
-    (base-char (create-texture-entity-for-string (string thing) color))
-    (symbol (create-texture-entity-for-notation-glyph thing color))
-    (integer (create-texture-entity-for-integer thing color))))
+    (string (create-texture-entity-for-string thing :color color :size size))
+    (base-char (create-texture-entity-for-string (string thing) :color color :size size))
+    (symbol (create-texture-entity-for-notation-glyph thing :color color))
+    (integer (create-texture-entity-for-integer thing :color color))))
 
 (defun get-texture-entity-for (thing)
   "Get a texture-entity for THING from cache or create and store it in the
@@ -515,7 +515,7 @@ the staff INST."
     (integer (draw-number-digits (format nil "~d" value) x y color))
     (float (draw-number-digits (format nil "~,2f" value) x y color))))
 
-(defun draw-string (string x y &optional (color (list 0 0 0 1)))
+(defun draw-string (string x y &key (color (list 0 0 0 1)))
   "Draw a STRING to the specified coordinates X and Y (real screen
   coordinates) with the given COLOR. Return the width of the drawn
   string."
