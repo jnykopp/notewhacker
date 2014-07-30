@@ -40,7 +40,7 @@
      =notewhacker.lisp= function =gen-game-loop= by removing the
      s-expression starting =(f-staff (make-instance...=.
    - By default g-clef (𝄞) only matches events in midi channel 0 and
-     g-clef (𝄢) events in channel 1. To change both recognize all
+     f-clef (𝄢) events in channel 1. To change both recognize all
      channels, change in the aforementioned file and function the
      lines with =:midi-channel 0= and =:midi-channel 1= both to
      =:midi-channel nil=.
