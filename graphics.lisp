@@ -23,8 +23,7 @@
   (merge-pathnames #p"feta.ttf" (asdf:system-source-directory :notewhacker))
   "Font to use for the musical symbols.")
 
-(defparameter *notation-font-loader*
-  (zpb-ttf:open-font-loader *notation-font-pathname*)
+(defparameter *notation-font-loader* nil
   "Font loader for musical symbols.")
 
 (defparameter *text-font-pathname*
@@ -32,8 +31,7 @@
                    (asdf:system-source-directory :notewhacker))
   "Font to use for regular text.")
 
-(defparameter *text-font-loader*
-  (zpb-ttf:open-font-loader *text-font-pathname*)
+(defparameter *text-font-loader* nil
   "Font loader for regular text.")
 
 (defparameter *notation-font-size* 72
@@ -66,28 +64,47 @@ bounding boxes."
   "Mapping from a glyph id to the corresponding charcode in the
   notation font file.")
 
-(defparameter *notehead-height* 
-  (bb-height (get-vecto-bb-of (cdr (assoc 'notehead *glyph-id-charcode-tbl*))))
+(defparameter *notehead-height* nil
   "Height of one notehead with the current font size.")
 
-(defparameter *notehead-width*
-  (bb-width (get-vecto-bb-of (cdr (assoc 'notehead *glyph-id-charcode-tbl*))))
+(defparameter *notehead-width* nil
   "Width of the quarter note head (assumed to be the same as half note
   head too).")
 
-(defparameter *staff-line-width*
-  (/ *notehead-height* 8)
+(defparameter *staff-line-width* nil
   "Width of a staff line.")
 
-(defparameter *stem-width* 
-  (/ *notehead-height* 7)
+(defparameter *stem-width* nil
   "Width of the stem (for any note with a stem, e.g. the quarter
   note).")
 
-(defparameter *stem-height* 
-  (* *notehead-height* 3)
+(defparameter *stem-height* nil
   "Height of the stem (for any note with a stem, e.g. the quarter
   note).")
+
+(defun init-graphics ()
+  "Initialize the graphics package. Needs to be called within a thread
+created with SDL2's WITH-INIT, because open streams can't be shared
+between threads in CCL at least."
+  (setf *notation-font-loader*
+        (zpb-ttf:open-font-loader *notation-font-pathname*))
+  (setf *text-font-loader*
+        (zpb-ttf:open-font-loader *text-font-pathname*))
+  (setf *notehead-height*
+        (bb-height (get-vecto-bb-of (cdr (assoc 'notehead *glyph-id-charcode-tbl*)))))
+  (setf *notehead-width*
+        (bb-width (get-vecto-bb-of (cdr (assoc 'notehead *glyph-id-charcode-tbl*)))))
+  (setf *staff-line-width*
+        (/ *notehead-height* 8))
+  (setf *stem-width*
+        (/ *notehead-height* 7))
+  (setf *stem-height*
+        (* *notehead-height* 3)))
+
+(defun cleanup-graphics ()
+  "Clean up the graphics package. See `init-graphics' for reference."
+  (zpb-ttf:close-font-loader *notation-font-loader*)
+  (zpb-ttf:close-font-loader *text-font-loader*))
 
 (defun draw-horizontal-line (x1 x2 y width &optional (color))
   "Draw a horizontal line of WIDTH from (X1, Y) to (X2, Y). Color is a
@@ -495,10 +512,11 @@ the staff INST."
          ;; things will look funny without doing this. TODO: I know
          ;; nothing about fonts, this is probably not the right way to
          ;; do this.
-         :do (progn (draw-texture-entity texture-entity
-                                         (- effective-x (aref bb 0)) y nil)
-                    (incf effective-x bb-width)
-                    (incf total-bb-width bb-width))))
+         :do
+         (draw-texture-entity texture-entity
+                              (- effective-x (aref bb 0)) y nil)
+         (incf effective-x bb-width)
+         (incf total-bb-width bb-width)))
     total-bb-width))
 
 ;;; Note that for now, all strings and numbers are drawn with one

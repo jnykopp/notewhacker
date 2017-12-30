@@ -427,8 +427,10 @@ difficulty. Return the new target."
             (create-chord notes staff)))))))
 
 (defun game-state-step (game-state events)
-  "Execute one step in the game-state, update element positions, check for
-hits and misses etc. Return t, if game should still continue."
+  "Execute one step in the GAME-STATE, update element positions, check for
+hits and misses etc according to EVENTS.
+
+Return t, if game should still continue."
   (%update-lifetimes game-state)
   (%update-positions game-state)
   (with-accessors ((staffs staffs) (od other-drawables) (score score)
@@ -463,21 +465,20 @@ hits and misses etc. Return t, if game should still continue."
 (defvar *highscore* 0
   "The highest score so far.")
 
-(defun game-state-draw (game-state)
-  "Draw the game state."
+(defun game-state-draw (win game-state)
+  "Draw the GAME-STATE into GL context window WIN."
   (gl:clear-color 1 1 1 1)
   (gl:clear :color-buffer-bit)
-;  (gl:color 1 1 1 1)
   (draw game-state)
   (gl:flush)
-  (sdl:update-display))
+  (sdl2:gl-swap-window win))
 
 (defun gen-countdown (seconds)
   "Generate a countdown-state which will count down for specified
-  time (SECONDS). Return a function which can be called with a list of
-  new events."
+  time (SECONDS). Return a function which can be called with a GL
+  context window and a list of new events."
   (let ((target-time (local-time:timestamp+ (local-time:now) seconds :sec)))
-    (lambda (new-events)
+    (lambda (win new-events)
       (declare (ignore new-events))
       (gl:clear-color 1 1 1 1)
       (gl:clear :color-buffer-bit)
@@ -491,12 +492,12 @@ hits and misses etc. Return t, if game should still continue."
                      (gl:translate 395 300 0)
                      (draw-number (ceiling secs-left) 0 0))
                    (gl:flush)
-                   (sdl:update-display)
+                   (sdl2:gl-swap-window win)
                    nil))))))
 
 (defun gen-game-loop ()
   "Create a new game loop state. Returns a function wich can be called
-  with a list of new events."
+  with a GL context window and a list of new events."
   ;; TODO: *game-state* is global for debugging purposes (game can be
   ;; quit and the state still inspected afterwards). This could be a
   ;; closure for the returned function.
@@ -517,9 +518,9 @@ hits and misses etc. Return t, if game should still continue."
                                       :midi-channel 1
                                       :pos (cons 50 125))))
           (make-instance 'game-state :staffs (list g-staff f-staff))))
-  (lambda (new-events)
+  (lambda (win new-events)
     (let ((game-continues (game-state-step *game-state* new-events)))
-      (game-state-draw *game-state*)
+      (game-state-draw win *game-state*)
       (unless game-continues
         (gen-cont-choice (score *game-state*))))))
 
@@ -532,9 +533,9 @@ MAP-OF-MKN-SYM, return that matching symbol or nil if not found."
           :when (find (get-key event) map-of-mkn-sym :test #'= :key #'car)
           :return it)))
 
-(defun draw-choice (score highscore)
-  "Draw a screen which shows SCORE and HIGHSCORE, and gives the choice
-to continue the game or quit."
+(defun draw-choice (win score highscore)
+  "Draw a screen to GL context window WIN which shows SCORE and
+HIGHSCORE, and gives the choice to continue the game or quit."
   ;; TODO: This is very rudimentary!
   (gl:clear-color 1 1 1 1)
       (gl:clear :color-buffer-bit)
@@ -547,18 +548,18 @@ to continue the game or quit."
       (draw-string "C-4: new game" 150 250)
       (draw-string "G-4: quit game" 150 210)
       (gl:flush)
-      (sdl:update-display))
+      (sdl2:gl-swap-window win))
 
 (defun gen-cont-choice (score)
   "Create a choice-state for choosing whether to play a new game or
-  not. Returns a function which can be called with a list of new
-  events."
-  (lambda (new-events)
+  not. Returns a function which can be called with a GL context window
+  and a list of new events."
+  (lambda (win new-events)
     ;; mkn 60 = C4, mkn 67 = G4
     (let ((choice (get-choice new-events '((60 . new-game) (67 . quit))))
           (old-highscore *highscore*))
       (when (> score *highscore*) (setf *highscore* score))
-      (draw-choice score old-highscore)
+      (draw-choice win score old-highscore)
       (case choice
         (new-game
          (gen-countdown 3))
@@ -570,103 +571,122 @@ to continue the game or quit."
 ;;; keyboard. Should be done using scancodes in keyboard handling
 ;;; event loop and injecting midi events somehow to matcher's
 ;;; `get-new-midi-events'. Current implementation is a quick and dirty
-;;; hack.
+;;; hack. (Now even more of a hack, with cl-sdl2, as no more than one
+;;; key press is processed at a time)
 (let ((keypress-to-mkn-map
-       ;; For list of keysym names, see
-       ;; lispbuilder-sdl/cffi/keysym.lisp
-       '(:sdl-key-less 55
-         :sdl-key-a 56
-         :sdl-key-z 57
-         :sdl-key-s 58
-         :sdl-key-x 59
-         :sdl-key-c 60
-         :sdl-key-f 61
-         :sdl-key-v 62
-         :sdl-key-g 63
-         :sdl-key-b 64
-         :sdl-key-n 65
-         :sdl-key-j 66
-         :sdl-key-m 67
-         :sdl-key-k 68
-         :sdl-key-comma 69
-         :sdl-key-l 70
-         :sdl-key-period 71
-         :sdl-key-minus 72
-         :sdl-key-world-68 73)))
-  (defun handle-kbd-event ()
-    "For debugging purposes. Read the keyboard status and return a
-  list of midi events, one for each new keypress / key release. See
-  `handle-midi-events-and-notify' for reference."
+       ;; For list of keysym names, see SDL2's SDL_keycode.h and
+       ;; replace "SDLK_" with ":scancode-".
+       '(:scancode-nonusbackslash 55
+         :scancode-a 56
+         :scancode-z 57
+         :scancode-s 58
+         :scancode-x 59
+         :scancode-c 60
+         :scancode-f 61
+         :scancode-v 62
+         :scancode-g 63
+         :scancode-b 64
+         :scancode-n 65
+         :scancode-j 66
+         :scancode-m 67
+         :scancode-k 68
+         :scancode-comma 69
+         :scancode-l 70
+         :scancode-period 71
+         :scancode-semicolon 72
+         :scancode-slash 73)))
+  (defun handle-kbd-event (pressed-p scancode mod-value)
+    "For debugging purposes. Return a list of midi events matching
+  pressed or lifted (determined by PRESSED-P) key corresponding to
+  SCANCODE. See `handle-midi-events-and-notify' for reference."
     (loop :for (keysym mkn) :on keypress-to-mkn-map :by #'cddr
-       :for pressed-p = (sdl:key-pressed-p keysym)
-       :for released-p = (sdl:key-released-p keysym)
-       :when (or pressed-p released-p)
+       :when (sdl2:scancode= scancode keysym)
        :collect (make-instance
                  (if pressed-p 'note-on-midi-event 'note-off-midi-event)
-                 :channel (if (sdl:key-held-p :sdl-key-lshift) 1 0)
+                 :channel (if (= (mod mod-value 2) 1) 1 0)
                  :key mkn :velocity 127))))
+
+(let ((init-and-cleanup-functions '(graphics)))
+  (defun initialize-notewhacker ()
+    "Call functions listed in INIT-AND-CLEANUP-FUNCTIONS with INIT-
+appended to them."
+    (dolist (f init-and-cleanup-functions)
+      (funcall (intern (concatenate 'string (symbol-name 'init-) (symbol-name f)) :notewhacker))))
+  (defun cleanup-notewhacker ()
+    "Call functions listed in INIT-AND-CLEANUP-FUNCTIONS in reverse
+order with CLEANUP- appended to them."
+    (dolist (f (reverse init-and-cleanup-functions))
+      (funcall (intern (concatenate 'string (symbol-name 'cleanup-) (symbol-name f)) :notewhacker)))))
 
 (defun main ()
   ;; TODO: Read config.
   ;; Part of this code is derived from tutorial made by 3b
   ;; (http://3bb.cc/tutorials/cl-opengl/getting-started.html)
-  (sdl:with-init ()
-    (sdl:window 800 600 :title-caption "Notewhacker" :double-buffer t :bpp 32
-                :flags sdl:sdl-opengl :opengl-attributes '((:sdl-gl-doublebuffer 1)
-                                                           (:sdl-gl-accelerated-visual 1)))
-    (setf cl-opengl-bindings:*gl-get-proc-address* #'sdl-cffi::sdl-gl-get-proc-address)
-    (set-2d-projection 800 600)
-    (gl:clear-color 1 1 1 1)
-    (setf (sdl:frame-rate) 60)
-    ;; TODO: If midi reader won't start, fall back to keyboard input.
-    (start-midi-reader-thread)
+  (sdl2:with-init (:everything)
+    (sdl2:with-window (win :flags '(:shown :opengl))
+      (sdl2:with-gl-context (gl-context win)
+        (sdl2:gl-make-current win gl-context)
+        (set-2d-projection 800 600)
+        (gl:clear-color 1 1 1 1)
+        ;; TODO: If midi reader won't start, fall back to keyboard input.
+        (start-midi-reader-thread)
+        (initialize-notewhacker)
 
-    (gl:enable :blend)
-    (gl:blend-func :src-alpha :one-minus-src-alpha)
-    (gl:enable :line-smooth)
-    (gl:hint :line-smooth-hint :nicest)
-    (gl:enable :point-smooth)
-    (gl:hint :point-smooth-hint :nicest)
-    (gl:enable :polygon-smooth)
-    (gl:hint :polygon-smooth-hint :nicest)
+        (gl:enable :blend)
+        (gl:blend-func :src-alpha :one-minus-src-alpha)
+        (gl:enable :line-smooth)
+        (gl:hint :line-smooth-hint :nicest)
+        (gl:enable :point-smooth)
+        (gl:hint :point-smooth-hint :nicest)
+        (gl:enable :polygon-smooth)
+        (gl:hint :polygon-smooth-hint :nicest)
 
-    (setf *random-state* (make-random-state t))
+        (setf *random-state* (make-random-state t))
 
-    ;; TODO: Keyboard handling as a midi event generator is quite a
-    ;; hack right now.
-    (unwind-protect 
-         (let (;; TODO: Now starts from the countdown. Should have a
-               ;; game menu as the beginning point.
-               (current-state (gen-countdown 3))
-               extra-midi-events)       ;This is for kbd debugging
-           (sdl:with-events ()
-             (:quit-event () t)
-             (:key-down-event ()
-                              (when (sdl:key-pressed-p :sdl-key-escape)
-                                (sdl:push-quit-event))
-                              (when (sdl:key-pressed-p :sdl-key-f1)
-                                (setf *debug* (not *debug*)))
-                              (setf extra-midi-events (handle-kbd-event))
-                              (when *debug*
-                                (when extra-midi-events
-                                  (format t "new events: ~a~%" extra-midi-events))
-                                (format t "keys: ~a~%" (sdl:get-keys-state))))
-             (:key-up-event ()
-                            ;; This case needed only for kbd debugging!
-                            (setf extra-midi-events (handle-kbd-event))
-                            (when (and *debug* extra-midi-events)
-                              (format t "new events: ~a~%" extra-midi-events)))
-             (:idle ()
-                    (let* ((new-events
-                            ;; Concatenate extra-midi-events for kbd
-                            ;; debugging.
-                            (handle-midi-events-and-notify
-                             (prog1 (concatenate 'list extra-midi-events
-                                                 (get-new-midi-events))
-                               (setf extra-midi-events nil))))
-                           (new-state (funcall current-state new-events)))
-                      (if (eq new-state 'quit) ;quit is a special state
-                          (sdl:push-quit-event)
-                          (when new-state (setf current-state new-state)))))))
-      (stop-midi-reader-thread)
-      (clear-texture-entity-cache))))
+        ;; TODO: Keyboard handling as a midi event generator is quite a
+        ;; hack right now.
+        (unwind-protect
+             (let (;; TODO: Now starts from the countdown. Should have a
+                   ;; game menu as the beginning point.
+                   (current-state (gen-countdown 3))
+                   extra-midi-events    ;This is for kbd debugging
+                   (prev-frame-ticks 0))
+               (sdl2:with-event-loop (:method :poll)
+                 (:quit () t)
+                 (:keydown (:keysym keysym)
+                     (let ((scancode (sdl2:scancode-value keysym))
+                           (mod-value (sdl2:mod-value keysym)))
+                       (when (sdl2:scancode= keysym :scancode-escape)
+                         (sdl2:push-quit-event))
+                       (when (sdl2:scancode= keysym :scancode-f1)
+                         (setf *debug* (not *debug*)))
+                       (setf extra-midi-events (handle-kbd-event t scancode mod-value))
+                       (when (and *debug* extra-midi-events)
+                           (format t "new events: ~a~%" extra-midi-events))))
+                 (:keyup (:keysym keysym)
+                     (let ((scancode (sdl2:scancode-value keysym))
+                           (mod-value (sdl2:mod-value keysym)))
+                       ;; This case needed only for kbd debugging!
+                       (setf extra-midi-events (handle-kbd-event nil scancode mod-value))
+                       (when (and *debug* extra-midi-events)
+                         (format t "new events: ~a~%" extra-midi-events))))
+                 (:idle ()
+                        ;; Update screen only at about 60 FPS (16
+                        ;; milliseconds between frames) because that's
+                        ;; what the `game-state-step' expects.
+                        (when (> (- (sdl2:get-ticks) prev-frame-ticks) 15)
+                          (setf prev-frame-ticks (sdl2:get-ticks))
+                          (let* ((new-events
+                                  ;; Concatenate extra-midi-events for kbd
+                                  ;; debugging.
+                                  (handle-midi-events-and-notify
+                                   (prog1 (concatenate 'list extra-midi-events
+                                                       (get-new-midi-events))
+                                     (setf extra-midi-events nil))))
+                                 (new-state (funcall current-state win new-events)))
+                            (if (eq new-state 'quit) ;quit is a special state
+                                (sdl2:push-quit-event)
+                                (when new-state (setf current-state new-state))))))))
+          (stop-midi-reader-thread)
+          (cleanup-notewhacker)
+          (clear-texture-entity-cache))))))

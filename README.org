@@ -4,9 +4,9 @@
 
   Connect your General Midi-enabled musical instrument of choice to
   your computer. Start Notewhacker and try to hit your instrument's
-  keys matching notes scrolling on a staff on your screen.
+  keys matching the notes scrolling on a staff on your screen.
 
-  2014-07-31, version 0.0.2 (See [[CHANGELOG.org]])
+  2017-12-30, version 0.0.3 (See [[CHANGELOG.org]])
 
 * Installing and running
 
@@ -28,7 +28,7 @@
    - Reasonably recent Linux operating system (might work on other
      Unixes too)
      - [[http://www.opensound.com/][OSS]] or [[http://www.alsa-project.org/main/index.php/Main_Page][ALSA]]
-     - [[http://www.libsdl.org/][Simple Directmedia Layer]] library
+     - [[http://www.libsdl.org/][Simple Directmedia Layer]] version 2.0 system library
    - OpenGL 2.0 compatible graphics card and drivers
      - Related libraries for Linux
    - [[http://ccl.clozure.com/][Clozure Common Lisp]] or [[http://www.sbcl.org/][SBCL]] implementation of Common Lisp
@@ -95,7 +95,8 @@
   On some graphics cards all of the textures have a thin transparent
   line going across them. This happens e.g. on Nvidia Quadro NVS
   4200M. The software was developed using Intel HD4000 graphics card,
-  which doesn't expose this bug.
+  and VirtualBox with Windows host OS and Intel HD 530 graphics card,
+  which don't expose this bug.
 
 * Author
 

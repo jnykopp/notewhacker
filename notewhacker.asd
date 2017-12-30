@@ -22,12 +22,12 @@
   :description "Displays scrolling notes on screen, which the user should play with a midi-enabled instrument."
   :author "Janne Nykopp <newcup@iki.fi>"
   :license "GPLv3"
-  :version "0.0.2"
+  :version "0.0.3"
   :depends-on (#:bordeaux-threads
                #:cl-opengl
                #:zpb-ttf
                #:vecto
-               #:lispbuilder-sdl
+               #:sdl2
                #:fiveam
                #:local-time)
   :components ((:file "package")

@@ -1,5 +1,13 @@
 * Changelog
 
+** 0.0.3 (2017-12-30)
+   - With current lispbuilder-sdl, cl-opengl and SDL1.2 system
+     library, both CCL (1.11.5) and SBCL (1.4.2) crashed with floating
+     point exceptions. Since SDL1.2 is "historic" according to SDL
+     home page and lispbuilder-sdl is using SDL1.2, I decided to move
+     on to cl-sdl2 and SDL2 system library. I modified Notewhacker in
+     the most straightforward way to use cl-sdl2 and SDL2.
+
 ** 0.0.2 (2014-07-31)
    - Added support for multiple staffs.
    - Added C-clef support.
