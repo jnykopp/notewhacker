@@ -408,8 +408,8 @@ difficulty. Return the new target."
       ;; and hit difficult notes, which player had problems with
       ;; earlier.)
       (let ((base-key (if (eq (clef staff) 'f-clef)
-                          30
-                          55
+                          40 ; 40 = E
+                          60 ; 60 = c2, 81 = a2
                           )))
         ;; NOTE: At the moment, this is tuned for the keyboard input.
         (flet ((random-note ()
