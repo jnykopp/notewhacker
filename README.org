@@ -17,11 +17,20 @@
   Easiest way to get the software running is to use [[http://www.quicklisp.org/][Quicklisp]]:
   - Install Quicklisp
   - Copy or move the =notewhacker= directory into quicklisp's
-    local-projects directory.
+    local-projects directory =~/quicklisp/local-projects=.
   - Run in Lisp repl =(ql:quickload "notewhacker")=. This will
     automatically download and compile the dependencies and compile
     Notewhacker.
   - Start the program with =(notewhacker:main)=.
+  - After initial installation, you can load Quicklisp in your Lisp repl with =(load "~/quicklisp/setup.lisp")= before loading Notewhacker, e.g. in SBCL:
+ : $ sbcl
+ : ...
+ : * (load "~/quicklisp/setup.lisp")
+ : T
+ : * (ql:quickload "notewhacker")
+ : ...
+ : ("notewhacker")
+ : * (notewhacker:main)
 
 ** System requirements
 
