@@ -96,7 +96,17 @@ element."
     :accessor midi-channel :initarg :midi-channel :initform nil
     :documentation "Events with matching channel information target
     this staff. If nil, all events match. Used for matching Midi
-    events to staff."))
+    events to staff.")
+   (min-base-key
+    :accessor min-base-key :initarg :min-base-key :initform nil
+    :documentation "Minimum base key for the staff. Notes will be
+    created in `%create-new-targets` between min-base-key and
+    max-base-key")
+   (max-base-key
+    :accessor max-base-key :initarg :max-base-key :initform nil
+    :documentation "Maximum base key for the staff. Notes will be
+    created in `%create-new-targets` between min-base-key and
+    max-base-key"))
   (:documentation "Class holding information of a staff and its state
   in the game."))
 
@@ -407,18 +417,26 @@ difficulty. Return the new target."
       ;; TODO: Better choice at random notes. Learning? (Make player try
       ;; and hit difficult notes, which player had problems with
       ;; earlier.)
-      (let ((base-key (if (eq (clef staff) 'f-clef)
-                          30
-                          55
-                          )))
+      (let* ((base-key (min-base-key staff))
+             (staff-width (- (max-base-key staff) base-key))
+             (max-chord-width 12) ; octave
+             (half-chord-width (/ max-chord-width 2)))
         ;; NOTE: At the moment, this is tuned for the keyboard input.
-        (flet ((random-note ()
-                 (+ base-key (random 17))
-                 ))
+        (labels ((chord-base-note (first-note)
+                  (let ((delta-min (- first-note base-key))
+                        (delta-max (- (max-base-key staff) first-note)))
+                    (cond ((< delta-min half-chord-width) first-note)
+                          ((< delta-max half-chord-width) (- first-note max-chord-width))
+                          (t (- first-note half-chord-width)))))
+                 (random-note (first-note)
+                  (when *debug* (format t "base-key ~a~&" (if first-note (chord-base-note first-note) base-key)))
+                  (if first-note
+                      (+ (chord-base-note first-note) (random max-chord-width))
+                      (+ base-key (random staff-width)))))
           (let ((note-num (1+ (random (ceiling (/ (1+ score) 500)))))
                 notes)
             (dotimes (x note-num)
-              (pushnew (random-note) notes))
+              (pushnew (random-note (car notes)) notes))
             (when *debug*
               (format t "Creating chord ~a~&"
                       (mapcar (lambda (x)
@@ -511,11 +529,15 @@ Return t, if game should still continue."
                                       :width 700 :clef 'g-clef
                                       :key-signature "C Major"
                                       :midi-channel 0
+                                      :min-base-key 60 ; c4
+                                      :max-base-key 81 ; a5
                                       :pos (cons 50 350)))
               (f-staff (make-instance 'game-staff
                                       :width 700 :clef 'f-clef
                                       :key-signature "C Major"
                                       :midi-channel 1
+                                      :min-base-key 40 ; e2
+                                      :max-base-key 60 ; c4
                                       :pos (cons 50 125))))
           (make-instance 'game-state :staffs (list g-staff f-staff))))
   (lambda (win new-events)
