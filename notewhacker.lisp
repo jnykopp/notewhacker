@@ -98,14 +98,16 @@ element."
     this staff. If nil, all events match. Used for matching Midi
     events to staff.")
    (min-base-key
-    :accessor min-base-key :initarg :min-base-key :initform nil
+    :accessor min-base-key :initarg :min-base-key
+    :initform (error "min-base-key must be initialized")
     :documentation "Minimum base key for the staff. Notes will be
-    created in `%create-new-targets` between min-base-key and
+    created in `%create-new-target' between min-base-key and
     max-base-key")
    (max-base-key
-    :accessor max-base-key :initarg :max-base-key :initform nil
+    :accessor max-base-key :initarg :max-base-key
+    :initform (error "max-base-key must be initialized")
     :documentation "Maximum base key for the staff. Notes will be
-    created in `%create-new-targets` between min-base-key and
+    created in `%create-new-target' between min-base-key and
     max-base-key"))
   (:documentation "Class holding information of a staff and its state
   in the game."))
@@ -402,6 +404,41 @@ be appended to game-state's other drawable objects."
         (%shake-staff staff))
       targets-out)))
 
+;;; Utilities that can be used e.g. for generating random target
+;;; notes.
+(defun pick-random (l r width)
+  "Pick a random integer from range [R, L] (inclusive).
+
+Return three values: the random integer, and new, tighter left
+and right limits that are both within at maximum WIDTH distance
+from the chosen random integer."
+  (let* ((rnd-val (+ l (random (- r l))))
+         (new-l (max l (- rnd-val width)))
+         (new-r (min r (+ rnd-val width))))
+    (values rnd-val new-l new-r)))
+
+;;; Utilities that can be used e.g. for generating random target
+;;; notes.
+(defun pick-max-n-randoms (num l-limit r-limit width)
+  "Pick at maximum NUM unique random integers, maybe less, from a
+range of integers [L-LIMIT, R-LIMIT] (inclusive) so that all of
+the random integers are within WIDTH of each other - that is, the
+returned list's max - min <= WIDTH. Return a list of these random
+integers.
+
+Note that random is called at max NUM times - no guarantee is
+made that NUM integers will be returned. The smaller WIDTH/NUM
+is, the less probable it is to get all NUM values.
+
+Returned integers are in random order and unique."
+  (let (randoms)
+    (loop :repeat num
+          :do (multiple-value-bind (v new-l new-r) (pick-random l-limit r-limit width)
+                (setf l-limit new-l
+                      r-limit new-r)
+                (pushnew v randoms))
+          :finally (return randoms))))
+
 ;;; TODO: User might need to modify this by hand! Implement a menu
 ;;; system for in-game settings.
 (defun %create-new-target (staff score)
@@ -417,32 +454,15 @@ difficulty. Return the new target."
       ;; TODO: Better choice at random notes. Learning? (Make player try
       ;; and hit difficult notes, which player had problems with
       ;; earlier.)
-      (let* ((base-key (min-base-key staff))
-             (staff-width (- (max-base-key staff) base-key))
-             (max-chord-width 12) ; octave
-             (half-chord-width (/ max-chord-width 2)))
-        ;; NOTE: At the moment, this is tuned for the keyboard input.
-        (labels ((chord-base-note (first-note)
-                  (let ((delta-min (- first-note base-key))
-                        (delta-max (- (max-base-key staff) first-note)))
-                    (cond ((< delta-min half-chord-width) first-note)
-                          ((< delta-max half-chord-width) (- first-note max-chord-width))
-                          (t (- first-note half-chord-width)))))
-                 (random-note (first-note)
-                  (when *debug* (format t "base-key ~a~&" (if first-note (chord-base-note first-note) base-key)))
-                  (if first-note
-                      (+ (chord-base-note first-note) (random max-chord-width))
-                      (+ base-key (random staff-width)))))
-          (let ((note-num (1+ (random (ceiling (/ (1+ score) 500)))))
-                notes)
-            (dotimes (x note-num)
-              (pushnew (random-note (car notes)) notes))
-            (when *debug*
-              (format t "Creating chord ~a~&"
-                      (mapcar (lambda (x)
-                                (multiple-value-list (mkn-to-scientific-notation x)))
-                              notes)))
-            (create-chord notes staff)))))))
+      (let* ((max-chord-width 12))      ; octave
+        (let* ((note-num (1+ (random (ceiling (/ (1+ score) 500)))))
+               (notes (pick-max-n-randoms note-num (min-base-key staff) (max-base-key staff) max-chord-width)))
+          (when *debug*
+            (format t "Creating chord ~a~&"
+                    (mapcar (lambda (x)
+                              (multiple-value-list (mkn-to-scientific-notation x)))
+                            notes)))
+          (create-chord notes staff))))))
 
 (defun game-state-step (game-state events)
   "Execute one step in the GAME-STATE, update element positions, check for
@@ -598,35 +618,44 @@ HIGHSCORE, and gives the choice to continue the game or quit."
 (let ((keypress-to-mkn-map
        ;; For list of keysym names, see SDL2's SDL_keycode.h and
        ;; replace "SDLK_" with ":scancode-".
-       '(:scancode-nonusbackslash 55
-         :scancode-a 56
-         :scancode-z 57
-         :scancode-s 58
-         :scancode-x 59
-         :scancode-c 60
-         :scancode-f 61
-         :scancode-v 62
-         :scancode-g 63
-         :scancode-b 64
-         :scancode-n 65
-         :scancode-j 66
-         :scancode-m 67
-         :scancode-k 68
-         :scancode-comma 69
-         :scancode-l 70
-         :scancode-period 71
-         :scancode-semicolon 72
-         :scancode-slash 73)))
+       '(:scancode-nonusbackslash 60    ; C4
+         :scancode-a 61
+         :scancode-z 62
+         :scancode-s 63
+         :scancode-x 64
+         :scancode-c 65
+         :scancode-f 66
+         :scancode-v 67
+         :scancode-g 68
+         :scancode-b 69
+         :scancode-h 70
+         :scancode-n 71
+         :scancode-m 72
+         :scancode-k 73
+         :scancode-comma 74
+         :scancode-l 75
+         :scancode-period 76
+         :scancode-slash 77
+         :scancode-1 78
+         :scancode-q 79
+         :scancode-2 80
+         :scancode-w 81
+         :scancode-3 82
+         :scancode-e 83
+         :scancode-r 84)))
   (defun handle-kbd-event (pressed-p scancode mod-value)
     "For debugging purposes. Return a list of midi events matching
   pressed or lifted (determined by PRESSED-P) key corresponding to
   SCANCODE. See `handle-midi-events-and-notify' for reference."
-    (loop :for (keysym mkn) :on keypress-to-mkn-map :by #'cddr
-       :when (sdl2:scancode= scancode keysym)
-       :collect (make-instance
-                 (if pressed-p 'note-on-midi-event 'note-off-midi-event)
-                 :channel (if (= (mod mod-value 2) 1) 1 0)
-                 :key mkn :velocity 127))))
+    (let ((shiftedp (= (mod mod-value 2) 1)))
+      (loop :for (keysym mkn) :on keypress-to-mkn-map :by #'cddr
+         :when (sdl2:scancode= scancode keysym)
+         :collect (make-instance
+                   (if pressed-p 'note-on-midi-event 'note-off-midi-event)
+                   :channel (if shiftedp 1 0)
+                   ;; mkn - 24 => keyboard starts from 36 (C2) when
+                   ;; shifted
+                   :key (if shiftedp (- mkn 24) mkn) :velocity 127)))))
 
 (let ((init-and-cleanup-functions '(graphics)))
   (defun initialize-notewhacker ()
