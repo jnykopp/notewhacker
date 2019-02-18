@@ -44,7 +44,7 @@
    - OpenGL 2.0 compatible graphics card and drivers
      - Related libraries for Linux
    - [[http://ccl.clozure.com/][Clozure Common Lisp]] or [[http://www.sbcl.org/][SBCL]] implementation of Common Lisp (see
-     [[Known Bugs]], though)
+     [[Known bugs]], though)
    - General Midi compatible musical instrument or somesuch
 
 ** Getting sound out from your controller
@@ -134,7 +134,9 @@
   [[http://www.fontsquirrel.com/][Font Squirrel]]. See file =SIL Open
   Font License.CrimsonText-Roman.ttf.txt= for more information.
 
-  Finally, this software exists thanks to [[http://lispinsummerprojects.org/][Lisp In Summer Projects]]
+  Thanks to [[https://github.com/ykarikos][Yrjö Kari-Koskinen]] for improvements, ideas and testing.
+
+  Finally, this software exists thanks to [[https://web.archive.org/web/20171004062739/http://lispinsummerprojects.org/][Lisp In Summer Projects]]
   contest.
 
 * To do
