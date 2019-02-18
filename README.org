@@ -45,7 +45,7 @@
      - Related libraries for Linux
    - [[http://ccl.clozure.com/][Clozure Common Lisp]] or [[http://www.sbcl.org/][SBCL]] implementation of Common Lisp (see
      [[Known bugs]], though)
-   - General Midi compatible musical instrument or somesuch
+   - General Midi compatible musical instrument or some such
 
 ** Getting sound out from your controller
 
@@ -117,7 +117,7 @@
 
   Short demo of version 0.0.1 at [[http://youtu.be/I-SWG3A_mAQ][YouTube]].
 
-* Acknowledgements
+* Acknowledgments
 
   This project includes some parts of code derived from work of [[http://3bb.cc/tutorials/cl-opengl/getting-started.html][3b]]
   (see comments in files =notewhacker.lisp= function =main=, and
