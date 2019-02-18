@@ -1,4 +1,4 @@
-;;;; Copyright 2013 Janne Nykopp
+;;;; Copyright 2013-2019 Janne Nykopp
 
 ;;;; midi.lisp
 
@@ -30,6 +30,14 @@
   "A lock which the main thread holds as long as it wants the midi
   reader thread to stay alive.")
 
+#+notewhacker-midi-thru
+(defparameter *midi-thru-pathname*
+  #.(merge-pathnames "midi-thru"
+                     (uiop:parse-unix-namestring (uiop:getenv "HOME") :type :directory))
+  "What is the file name for writing 'MIDI thru' octets to. This
+  should be a FIFO which some synthesizer reads to produce sound,
+  e.g.")
+
 (defstruct raw-buffer
   "Buffer for raw octets"
   (octet-array (make-array *raw-buffer-length*
@@ -44,6 +52,43 @@
   "The raw buffer which will be constantly filled with
   `*midi-reader-thread*' and read from the main program thread
   periodically.")
+
+#+notewhacker-midi-thru
+(let (midi-thru-stream)
+  (defun open-midi-thru ()
+    "Open the stream for midi thru."
+    (unless midi-thru-stream
+      (setf midi-thru-stream (open *midi-thru-pathname*
+                                   :direction :output
+                                   :if-exists :overwrite
+                                   :if-does-not-exist :error
+                                   :element-type '(unsigned-byte 8)))))
+  (defun close-midi-thru ()
+    "Close the stream for midi thru. Actually, this doesn't really
+close the FIFO, since the listener may go in a panic if the
+'device'-file vanishes. At least fluidsynth will cause 100% CPU
+utilization.
+
+NOTE: I wasn't able to test this with CCL so not sure if this will
+work (the file handle is opened in a new thread, and next time,
+possibly used in another thread, which the CCL might not like)."
+    (when midi-thru-stream
+      ;; Send "all notes off" control change to make sure no keys stay
+      ;; pressed. (Not sure if this works with all MIDI equipment or
+      ;; if a note-off event should be sent to all channels and all
+      ;; keys...)
+      (write-sequence '(176 123 0) midi-thru-stream)
+      (force-output midi-thru-stream)))
+  (defun midi-pass-through (octet)
+    "Route the OCTET to midi thru stream.
+
+Note that the OCTET ought to be sent immediately, skipping all I/O
+buffering. Henec the call to `force-output', which forces the OCTET to
+the stream unbuffered; output doesn't need implementation-specific
+tricks, unlike reading a byte immediately from input stream."
+    (when midi-thru-stream
+      (write-byte octet midi-thru-stream)
+      (force-output midi-thru-stream))))
 
 (defun start-midi-reader-thread ()
   "Start a thread which reads the midi device."
@@ -416,19 +461,21 @@ eaten)."
     (is (or (null remaining-data) (= (length remaining-data) 0)))))
 
 ;;; Reading data from a midi device:
-;;; 
-;;; Midi device reading thread can block and wait for data. Busy-loop
-;;; over the device, reading data into buffer. Another thread can then
-;;; analyse data in the buffer and create midi events as necessary.
-;;; 
-;;; For now, the octet reader is only implemented for Clozure Common
-;;; Lisp and SBCL. Reading the octet should be non-blocking and this
-;;; requires implementation-specific code.
-;;; 
+;;;
+;;; Midi device reading thread uses blocking read in a busy-loop
+;;; waiting for data from the device. Data is read into a ring
+;;; buffer. Another thread can then read the data from the buffer and
+;;; create midi events as necessary.
+;;;
+;;; For now, the device reading thread is only implemented for Clozure
+;;; Common Lisp and SBCL. Reading the octet should be non-blocking and
+;;; this requires implementation-specific code.
+;;;
 ;;; The current implementation for both CCL and SBCL is naive and
-;;; inefficient, reading only one byte at a time. But this seems to be
-;;; quite enough for current needs. Also, it doesn't seem to be
-;;; trivial to read more than one byte with non-blocking IO.
+;;; inefficient, reading only one byte at a time (even if there were
+;;; more octets immediately available at the input device). But this
+;;; seems to be quite enough for current needs. Also, it doesn't seem
+;;; to be trivial to read more than one byte with non-blocking IO.
 
 #+ccl
 (defun %ccl-read-octet (stream buffer)
@@ -439,6 +486,7 @@ eaten)."
              (read-byte stream)
            (ccl:input-timeout nil))))
     (when octet
+      #+notewhacker-midi-thru (midi-pass-through octet)
       (add-element octet buffer))))
 
 #+ccl
@@ -461,6 +509,7 @@ eaten)."
              (read-byte stream)
            (sb-sys:io-timeout nil))))
     (when octet
+      #+notewhacker-midi-thru (midi-pass-through octet)
       (add-element octet buffer))))
 
 #+sbcl
@@ -482,7 +531,8 @@ eaten)."
   "Blocking call (until the calling thread is signalled to terminate
   with *MIDI-READER-QUIT-SIGNAL*), which reads octets from opened
   device file OPEN-DEVICE to BUFFER."
+  #+notewhacker-midi-thru (open-midi-thru)
   #+ccl (%ccl-raw-read-octets midi-dev-path buffer)
   #+sbcl (%sbcl-raw-read-octets midi-dev-path buffer)
-  #-(or ccl sbcl) (error "This lisp implementation is not supported."))
-
+  #-(or ccl sbcl) (error "This lisp implementation is not supported.")
+  #+notewhacker-midi-thru (close-midi-thru))

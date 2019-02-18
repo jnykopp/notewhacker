@@ -1,4 +1,4 @@
-;;;; Copyright 2013 Janne Nykopp
+;;;; Copyright 2013-2019 Janne Nykopp
 
 ;;;; notewhacker.lisp
 
@@ -725,19 +725,31 @@ order with CLEANUP- appended to them."
                         ;; Update screen only at about 60 FPS (16
                         ;; milliseconds between frames) because that's
                         ;; what the `game-state-step' expects.
-                        (when (> (- (sdl2:get-ticks) prev-frame-ticks) 15)
-                          (setf prev-frame-ticks (sdl2:get-ticks))
-                          (let* ((new-events
-                                  ;; Concatenate extra-midi-events for kbd
-                                  ;; debugging.
-                                  (handle-midi-events-and-notify
-                                   (prog1 (concatenate 'list extra-midi-events
-                                                       (get-new-midi-events))
-                                     (setf extra-midi-events nil))))
-                                 (new-state (funcall current-state win new-events)))
-                            (if (eq new-state 'quit) ;quit is a special state
-                                (sdl2:push-quit-event)
-                                (when new-state (setf current-state new-state))))))))
+                        (if (> (- (sdl2:get-ticks) prev-frame-ticks) 15)
+                            (progn
+                              (setf prev-frame-ticks (sdl2:get-ticks))
+                              (let* ((new-events
+                                      ;; Concatenate extra-midi-events for kbd
+                                      ;; debugging.
+                                      (handle-midi-events-and-notify
+                                       (prog1 (concatenate 'list extra-midi-events
+                                                           (get-new-midi-events))
+                                         (setf extra-midi-events nil))))
+                                     (new-state (funcall current-state win new-events)))
+                                (if (eq new-state 'quit) ;quit is a special state
+                                    (sdl2:push-quit-event)
+                                    (when new-state (setf current-state new-state)))))
+                            ;; TODO: A hack to prevent 100% CPU usage
+                            ;; with the cl-sdl2. Running the idle loop
+                            ;; just banging the `sdl2:get-ticks' will
+                            ;; drain all CPU. Instead, delay until
+                            ;; it's time for next frame. (The earlier
+                            ;; library, lispbuilder-sdl, had a
+                            ;; built-in FPS limiter that did this
+                            ;; automatically. Perhaps it's time to
+                            ;; check out sdl2.kit or something.)
+                            ;; 
+                            (sdl2:delay (max 0 (- (sdl2:get-ticks) prev-frame-ticks 1)))))))
           (stop-midi-reader-thread)
           (cleanup-notewhacker)
           (clear-texture-entity-cache))))))
