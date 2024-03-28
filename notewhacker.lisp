@@ -1,4 +1,4 @@
-;;;; Copyright 2013-2019 Janne Nykopp
+;;;; Copyright 2013-2024 Janne Nykopp
 
 ;;;; notewhacker.lisp
 
@@ -30,6 +30,18 @@
   (gl:viewport 0 0 width height)
   (gl:ortho 0 width 0 height 0 1)
   (gl:matrix-mode :modelview))
+
+;;; Screen scaling related stuff.
+(defparameter *virtual-width* 800
+  "This multiplied with `*scale-factor*' should equal to `*win-width*'")
+(defparameter *virtual-height* 600)
+(defparameter *win-width* 800)
+(defparameter *win-height* 600)
+(defvar *target-display-ratio* (/ *virtual-width* *virtual-height*)
+  "This should stay constant")
+(defparameter *draw-offset-x* 0)
+(defparameter *draw-offset-y* 0)
+(defparameter *scale-factor* 1.0)
 
 (defun get-target-points (target-chord-mkns)
   "Return the amount of points the target chord gives."
@@ -507,7 +519,10 @@ Return t, if game should still continue."
   "Draw the GAME-STATE into GL context window WIN."
   (gl:clear-color 1 1 1 1)
   (gl:clear :color-buffer-bit)
-  (draw game-state)
+  (gl:with-pushed-matrix
+    (gl:translate *draw-offset-x* *draw-offset-y* 0)
+    (gl:scale *scale-factor* *scale-factor* 1)
+    (draw game-state))
   (gl:flush)
   (sdl2:gl-swap-window win))
 
@@ -520,18 +535,21 @@ Return t, if game should still continue."
       (declare (ignore new-events))
       (gl:clear-color 1 1 1 1)
       (gl:clear :color-buffer-bit)
-      (let ((secs-left
-             (local-time:timestamp-difference target-time (local-time:now))))
-        (if (< secs-left 0)
-            (progn (setf target-time nil) (gen-game-loop))
-            (progn (gl:color 1 1 1 1)
-                   ;; TODO: Fixed coordinates
-                   (gl:with-pushed-matrix
-                     (gl:translate 395 300 0)
-                     (draw-number (ceiling secs-left) 0 0))
-                   (gl:flush)
-                   (sdl2:gl-swap-window win)
-                   nil))))))
+      (gl:with-pushed-matrix
+        (gl:translate *draw-offset-x* *draw-offset-y* 0)
+        (gl:scale *scale-factor* *scale-factor* 1)
+        (let ((secs-left
+                (local-time:timestamp-difference target-time (local-time:now))))
+          (if (< secs-left 0)
+              (progn (setf target-time nil) (gen-game-loop))
+              (progn (gl:color 1 1 1 1)
+                     ;; TODO: Fixed coordinates
+                     (gl:with-pushed-matrix
+                       (gl:translate 395 300 0)
+                       (draw-number (ceiling secs-left) 0 0))
+                     (gl:flush)
+                     (sdl2:gl-swap-window win)
+                     nil)))))))
 
 (defun gen-game-loop ()
   "Create a new game loop state. Returns a function wich can be called
@@ -674,10 +692,10 @@ order with CLEANUP- appended to them."
   ;; Part of this code is derived from tutorial made by 3b
   ;; (http://3bb.cc/tutorials/cl-opengl/getting-started.html)
   (sdl2:with-init (:everything)
-    (sdl2:with-window (win :flags '(:shown :opengl))
+    (sdl2:with-window (win :w *win-width* :h *win-height* :flags '(:shown :opengl :resizable))
       (sdl2:with-gl-context (gl-context win)
         (sdl2:gl-make-current win gl-context)
-        (set-2d-projection 800 600)
+        (set-2d-projection *win-width* *win-height*)
         (gl:clear-color 1 1 1 1)
         ;; TODO: If midi reader won't start, fall back to keyboard input.
         (start-midi-reader-thread)
@@ -700,7 +718,8 @@ order with CLEANUP- appended to them."
              (let (;; TODO: Now starts from the countdown. Should have a
                    ;; game menu as the beginning point.
                    (current-state (gen-countdown 3))
-                   extra-midi-events    ;This is for kbd debugging
+                   extra-midi-events       ;This is for kbd debugging
+                   window-resize-requested ;nil if no resize, else (tick (new-x . new-y))
                    (prev-frame-ticks 0))
                (sdl2:with-event-loop (:method :poll)
                  (:quit () t)
@@ -721,12 +740,44 @@ order with CLEANUP- appended to them."
                        (setf extra-midi-events (handle-kbd-event nil scancode mod-value))
                        (when (and *debug* extra-midi-events)
                          (format t "new events: ~a~%" extra-midi-events))))
+                 (:windowevent (:event evtype :data1 data1 :data2 data2)
+                       ;; There's also evtype
+                       ;; `sdl2-ffi:+sdl-windowevent-resized' - see
+                       ;; https://wiki.libsdl.org/SDL2/SDL_WindowEventID. We
+                       ;; use size changed as it seems to be more
+                       ;; generic.
+                       (when (= evtype sdl2-ffi:+sdl-windowevent-size-changed+)
+                         (setf window-resize-requested (list (sdl2:get-ticks) (cons data1 data2)))
+                         (when *debug*
+                           (format t "Got size change window event type ~a, data1 ~a, data2 ~a~%"
+                                   evtype data1 data2))))
                  (:idle ()
                         ;; Update screen only at about 60 FPS (16
                         ;; milliseconds between frames) because that's
                         ;; what the `game-state-step' expects.
                         (if (> (- (sdl2:get-ticks) prev-frame-ticks) 15)
                             (progn
+                              (when (and window-resize-requested
+                                         (> (- (sdl2:get-ticks) (car window-resize-requested)) 100))
+                                ;; Resize drawing blocks if necessary,
+                                ;; but only if >100 ms have passed from
+                                ;; latest request.
+                                (destructuring-bind (w . h) (cadr window-resize-requested)
+                                  (setf *win-width* w *win-height* h)
+                                  (let ((min-w (* h *target-display-ratio*))
+                                        (min-h (floor w *target-display-ratio*)))
+                                    (setf *draw-offset-x* (if (> w min-w) (floor (- w min-w) 2) 0)
+                                          *draw-offset-y* (if (> h min-h) (floor (- h min-h) 2) 0)
+                                          *scale-factor* (min (/ min-w *virtual-width*)
+                                                              (/ min-h *virtual-height*)))))
+                                (when *debug*
+                                  (format t "Window resize: w: ~a, h: ~a; target-ratio ~a; ~
+                                             scale: ~a, draw-offsets: (~a, ~a)~%"
+                                          *win-width* *win-height* *target-display-ratio*
+                                          *scale-factor* *draw-offset-x* *draw-offset-y*))
+                                (set-2d-projection *win-width* *win-height*)
+                                (clear-texture-entity-cache)
+                                (setf window-resize-requested nil))
                               (setf prev-frame-ticks (sdl2:get-ticks))
                               (let* ((new-events
                                       ;; Concatenate extra-midi-events for kbd
@@ -748,7 +799,6 @@ order with CLEANUP- appended to them."
                             ;; built-in FPS limiter that did this
                             ;; automatically. Perhaps it's time to
                             ;; check out sdl2.kit or something.)
-                            ;; 
                             (sdl2:delay (max 0 (- (sdl2:get-ticks) prev-frame-ticks 1)))))))
           (stop-midi-reader-thread)
           (cleanup-notewhacker)

@@ -6,7 +6,7 @@
   your computer. Start Notewhacker and try to hit your instrument's
   keys matching the notes scrolling on a staff on your screen.
 
-  2017-12-30, version 0.0.3 (See [[CHANGELOG.org]])
+  2024-03-28, version 0.0.4 (See [[CHANGELOG.org]])
 
 * Installing and running
 
@@ -141,7 +141,6 @@
 
 * To do
 
-  - Resizeable window.
   - More intelligence to target chord creation.
     - User configurable note range.
     - Reasonable chords. Now they are totally random within a certain

@@ -1,4 +1,4 @@
-;;;; Copyright 2013 Janne Nykopp
+;;;; Copyright 2013-2024 Janne Nykopp
 
 ;;;; graphics.lisp
 
@@ -179,8 +179,10 @@ between threads in CCL at least."
   "Draw a texture-entity INST to coordinates X and Y (screen
   coordinates) so that INST's bounding box origo point is drawn in
   that coordinate, or if X-CENTER is non-nil, the texture-entity's
-  real x-center is drawn on that point. If APPLY-COLOR is non-nil, the
-  color of the texture-entity is applied before drawing."
+  real x-center is drawn on that point. Texture is scaled by
+  `*scale-factor*' so change the quad coordinates accordingly. If
+  APPLY-COLOR is non-nil, the color of the texture-entity is applied
+  before drawing."
   (gl:with-pushed-matrix
     (gl:enable :texture-2d)
     (when apply-color
@@ -190,8 +192,8 @@ between threads in CCL at least."
            (mid-x (/ (+ (aref bb 2) (aref bb 0)) 2))
            (left (+ x (aref bb 0)))
            (top (+ y (aref bb 1)))
-           (right (+ left (width inst)))
-           (bottom (+ top (height inst))))
+           (right (+ left (/ (width inst) *scale-factor*)))   ;TODO: silly to divide
+           (bottom (+ top (/ (height inst) *scale-factor*)))) ;TODO: silly to divide
       (when x-center
         (gl:translate (- mid-x) 0 0))
       (gl:with-primitive :quads
@@ -244,16 +246,19 @@ textures instantiated again upon use.")
 (defun create-texture-entity-from-string-with-vecto
     (string size font-loader &optional (color (list 0 0 0 1)))
   "Create a texture-entity of a STRING using vecto with FONT-LOADER (being an
-vecto font-loader loader instance) with SIZE."
+vecto font-loader loader instance) with SIZE. Scale the texture by
+`*scale-factor*' so we won't get blurry upscaled glyphs on screen."
   (let* ((bb (vecto:string-bounding-box string size font-loader))
-         (w (ceiling (bb-width bb)))
-         (h (ceiling (bb-height bb))))
+         (w (ceiling (* *scale-factor* (bb-width bb))))
+         (h (ceiling (* *scale-factor* (bb-height bb)))))
     (let ((texture
            (with-vecto-canvas-as-texture (w h)
              (vecto:with-graphics-state
                (vecto:set-rgba-fill 1 1 1 1)
-               (vecto:set-font font-loader size)
-               (vecto:draw-string (- (aref bb 0)) (- (aref bb 1)) string)
+               (vecto:set-font font-loader (* *scale-factor* size))
+               (vecto:draw-string (- (* *scale-factor* (aref bb 0)))
+                                  (- (* *scale-factor* (aref bb 1)))
+                                  string)
                (vecto:stroke)))))
       (make-instance
        'texture-entity

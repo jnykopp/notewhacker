@@ -1,5 +1,8 @@
 * Changelog
 
+** 0.0.4 (2024-03-28)
+   - Implemented resizeable screen.
+
 ** 0.0.3 (2017-12-30)
    - With current lispbuilder-sdl, cl-opengl and SDL1.2 system
      library, both CCL (1.11.5) and SBCL (1.4.2) crashed with floating
