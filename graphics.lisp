@@ -410,6 +410,20 @@ a new cons."
   ()
   (:documentation "A chord."))
 
+(defclass graphics-string (graphics-element)
+  ()
+  (:documentation "A string."))
+
+(defun create-graphics-string (str pos color lifetime vel effects &optional parent)
+  "Helper function to create a graphics element for displaying a string
+STR at position POS, with COLOR, LIFETIME, EFFECTS, and VELOCITY. Tie string to
+PARENT if given."
+  (make-instance
+   'graphics-string
+   :pos pos :velocity vel :color color :lifetime lifetime :effects effects
+   :parent-element parent
+   :drawing-primitives `((string ,str))))
+
 (defclass graphics-staff (graphics-element notational-staff)
   ((width
     :accessor width :initarg :width
@@ -435,13 +449,14 @@ a new cons."
 
 (defun detach-elem-from-paren (elem)
   "Detach the ELEM from its parent. Retain the ELEM's relative
-position."
+position. Return the old parent element."
   (let* ((parent (parent-element elem))
          (paren-pos (pos parent))
          (paren-vel (velocity parent)))
     (setf (parent-element elem) nil
           (pos elem) (cons-op '+ paren-pos (pos elem))
-          (velocity elem) (cons-op '+ paren-vel (velocity elem)))))
+          (velocity elem) (cons-op '+ paren-vel (velocity elem)))
+    parent))
 
 ;;; TODO: Implement, for key change during game
 ;; (defmethod (setf key-signature) :after (new-key (inst graphics-staff))
@@ -464,6 +479,8 @@ the staff INST."
     ((notehead ♯ ♭ ♮)
      (draw-texture-entity
       (get-texture-entity-for (first drawing-primitive)) 0 0))
+    (string
+     (draw-texture-entity (get-texture-entity-for (second drawing-primitive)) 0 0))
     (rotate
      (gl:rotate (second drawing-primitive) 0 0 1))
     (ledger-line

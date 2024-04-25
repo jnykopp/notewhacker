@@ -19,8 +19,9 @@
 
 (in-package #:notewhacker)
 
-(defparameter *midi-device-pathname* #p"/dev/midi1"
-  "Read raw midi octets from this file.")
+(defparameter *midi-device-pathname* nil
+  "If set, read raw midi octets from this file. If not set, dynamically
+try to figure out the correct file.")
 
 (defparameter *raw-buffer-length* 256
   "How many octets the raw buffer will be long")
@@ -90,12 +91,15 @@ tricks, unlike reading a byte immediately from input stream."
       (write-byte octet midi-thru-stream)
       (force-output midi-thru-stream))))
 
-(defun start-midi-reader-thread ()
-  "Start a thread which reads the midi device."
+(defun guess-midi-device-pathname ()
+  (first (uiop:directory-files "/dev/" "midi*")))
+
+(defun start-midi-reader-thread (pathname)
+  "Start a thread which reads the midi messages from device file pointed to by PATHNAME."
   (unless (bt:acquire-lock *midi-reader-quit-signal* nil)
     (error "Someone's holding *midi-reader-quit-signal*!"))
   (bt:make-thread
-   (lambda () (raw-read-octets *midi-device-pathname* *midi-octet-buffer*))
+   (lambda () (raw-read-octets pathname *midi-octet-buffer*))
    :name "midi reader"))
 
 (defun stop-midi-reader-thread ()

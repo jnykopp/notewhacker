@@ -48,11 +48,10 @@
   (let ((num-of-notes (length target-chord-mkns)))
     (* 10 (expt 2 (1- num-of-notes)))))
 
-(defun calculate-new-score (old-score points-awarded combo)
-  "Calculate a score based on OLD-SCORE, POINTS-AWARDED for the
-  targets hit and how long COMBO of correct notes player has. Return
-  the new score."
-  (+ old-score (* (1+ (/ combo 2)) points-awarded)))
+(defun calculate-score (points-awarded combo)
+  "Return score for hitting target based POINTS-AWARDED for the targets hit and how
+long COMBO of correct notes player has."
+  (* (1+ (/ combo 2)) points-awarded))
 
 (defstruct queue
   "Simple queue implementation. Tail always points to the last
@@ -306,6 +305,24 @@ Might also return nil if no staffs match!"
             (color-fade-effect inst :a (lambda (x) (* x .9)))))
     miss-chord))
 
+(defun %mkn-to-string (mkn)
+  "Convert a midi key note MKN to a string."
+  (multiple-value-bind (name acc oct) (mkn-to-scientific-notation mkn)
+    (uiop:strcat (symbol-name name) (when acc (if (string= (symbol-name acc) "♯") "#"))
+                 (write-to-string oct :radix nil :base 10 :pretty nil))))
+
+(defun %chord-to-strings (chord &optional parent)
+  "Convert a CHORD (instance of graphics-chord) into list
+of graphical-string representations. Inherit the position, color,
+lifetime, and velocity from CHORD. Bind the new instance to PARENT,
+which can be nil for no parent."
+  (with-slots (pos) chord
+    (loop :for tgt-mkn :in (mkn-list chord)
+          :collect (create-graphics-string
+                    (%mkn-to-string tgt-mkn)
+                    (pos chord) (color chord) (lifetime chord) (velocity chord) (effects chord)
+                    parent))))
+
 (defun %check-hits-misses (game-state events)
   "Check if the player scored some hits. Return a list of objects to
 be appended to game-state's other drawable objects."
@@ -316,10 +333,10 @@ be appended to game-state's other drawable objects."
   (when events
     (let* ((curr-tgts (get-current-targets game-state))
            (list-of-target-mkns
-            (loop :for tgt in curr-tgts :when tgt :collect (mkn-list tgt)))
+             (loop :for tgt :in curr-tgts :when tgt :collect (mkn-list tgt)))
            (hit-tgt-chord-list (filter-targets-hit list-of-target-mkns))
            (miss-events (return-miss-events events list-of-target-mkns))
-           pieces)
+           new-drawables)
       (when miss-events
         ;; Game bookkeeping updates
         (setf (combo game-state) 0)
@@ -329,12 +346,11 @@ be appended to game-state's other drawable objects."
         ;; staff that best matches the event. For each miss, create a
         ;; missed note marker for best matching staff.
         (loop
-           :for staff :being :the :hash-keys :in
-           (group-events-by-staff (staffs game-state) miss-events)
-           :using (hash-value misses-for-staff)
-           :do (pushnew
-                (%create-miss-chord-for-staff staff misses-for-staff)
-                (miss-notes staff))))
+          :for staff :being
+            :the :hash-keys :in (group-events-by-staff (staffs game-state) miss-events)
+              :using (hash-value misses-for-staff)
+          :for miss-chord := (%create-miss-chord-for-staff staff misses-for-staff)
+          :do (pushnew miss-chord (miss-notes staff))))
       (when hit-tgt-chord-list
         (with-accessors ((score score) (combo combo) (staffs staffs)) game-state
           ;; One midi event might match target of multiple staffs
@@ -344,17 +360,22 @@ be appended to game-state's other drawable objects."
             (let* ((curr-tgt (current-target staff))
                    (curr-tgt-mkn-list (mkn-list curr-tgt)))
               (when (target-hit-p curr-tgt-mkn-list)
-                (incf (num-of-hits game-state) (length curr-tgt-mkn-list))
-                (setf score (calculate-new-score
-                             score (get-target-points curr-tgt-mkn-list) combo))
-                (incf combo)
                 (detach-elem-from-paren curr-tgt)
-                (remove-current-target staff)
-                (let ((tmp-pieces (disassemble-graphics-element curr-tgt)))
+                (let* ((hit-score (calculate-score
+                                   (get-target-points curr-tgt-mkn-list) (incf combo)))
+                       (tgt-chord-strs
+                         ;; Display the note names of the target chord
+                         (%chord-to-strings curr-tgt))
+                       (tmp-pieces
+                         ;; Dissect the chord or note into components
+                         (disassemble-graphics-element curr-tgt)))
+                  (incf (num-of-hits game-state) (length curr-tgt-mkn-list))
+                  (incf score hit-score)
+                  (remove-current-target staff)
                   ;; Make the pieces fly around and dwindle.
                   (dolist (piece tmp-pieces)
-                    (setf (lifetime piece) 200)
-                    (setf (velocity piece) (cons (/ (- (random 50) 25) 5)
+                    (setf (lifetime piece) 200
+                          (velocity piece) (cons (/ (- (random 50) 25) 5)
                                                  (/ (- (random 50) 25) 5)))
                     (let ((rand-angle (/ (- (random 50) 25) 2)))
                       (setf (effects piece)
@@ -362,11 +383,36 @@ be appended to game-state's other drawable objects."
                               (lambda (inst)
                                 (color-fade-effect inst
                                                    :g (lambda (x) (+ x .01))
-                                                   :a (lambda (x) (* x .9)))
+                                                   :a (lambda (x) (* x .91)))
                                 (gl:rotate rot-angle 0 0 1)
                                 (incf rot-angle rand-angle)))))
-                    (push piece pieces))))))))
-      pieces)))
+                    (push piece new-drawables))
+                  ;; Make the note names fly a bit more deterministically
+                  (dolist (piece tgt-chord-strs)
+                    (setf (lifetime piece) 200
+                          (velocity piece) (cons (/ (- (random 50) 25) 15)
+                                                 (/ (random 25) 8))
+                          (effects piece)
+                          (lambda (inst)
+                            (color-fade-effect inst
+                                               :g (lambda (x) (+ x .001))
+                                               :a (lambda (x) (* x .98)))))
+                    (push piece new-drawables))
+                  ;; Finally display score from this target (TODO:
+                  ;; rewrite to use digits) str pos color lifetime vel effects
+                  (let ((score-str (create-graphics-string
+                                    (write-to-string hit-score :radix nil :base 10 :pretty nil)
+                                    (pos curr-tgt) (list 0 0 0 1) 200 (cons 0 3) nil)))
+                    (setf (effects score-str)
+                          (let ((scl 1.0))
+                            (lambda (inst)
+                              (color-fade-effect inst
+                                                 :g (lambda (x) (+ x .01))
+                                                 :a (lambda (x) (* x .99)))
+                              (gl:scale scl scl 1)
+                              (incf scl 0.01))))
+                    (push score-str new-drawables))))))))
+      new-drawables)))
 
 (defun %shake-staff (staff)
   "Make the STAFF shake a bit."
@@ -484,7 +530,8 @@ Return t, if game should still continue."
   (%update-lifetimes game-state)
   (%update-positions game-state)
   (with-accessors ((staffs staffs) (od other-drawables) (score score)
-                   (tn-x-vel target-note-x-vel)) game-state
+                   (tn-x-vel target-note-x-vel))
+      game-state
     (when events
       ;; TODO: This doesn't work yet for many staffs!
       (let ((pieces (%check-hits-misses game-state events)))
@@ -502,11 +549,53 @@ Return t, if game should still continue."
             (push-target-chord staff new-tgt))))
       ;; If there were fallen off chords, slow the game down, take one
       ;; life per fallen chord etc.
-      (let ((fallen-chords-num (length fallen-chords)))
+      (let* ((fallen-chords-num (length fallen-chords))
+             (prev-lives (loop :for l :downfrom (lives game-state)
+                               :repeat fallen-chords-num :collect l)))
         (setf tn-x-vel (* (expt .5 fallen-chords-num) tn-x-vel))
-        (decf (lives game-state) fallen-chords-num))
+        (decf (lives game-state) fallen-chords-num)
+        ;; Graphically drop the old lives amount so it becomes visible
+        ;; a life's been lost.
+        (dolist (life prev-lives)
+          (let ((falling-number
+                  ;; TODO: same hardcoded coordinate as in `draw' of game-state.
+                  (create-graphics-string (write-to-string life :radix nil :base 10 :pretty nil)
+                                          (cons 660 565) (list 0 0 0 1) 200
+                                          (cons (/ (- (random 30) 10) 10) (/ (- (random 8)) 10))
+                                          nil nil))
+                (rand-angle (/ (- (random 50) 25) 2)))
+            (setf (effects falling-number)
+                  (let ((rot-angle rand-angle))
+                    (lambda (inst)
+                      (color-fade-effect inst
+                                         :r (lambda (x) (+ x .01))
+                                         :a (lambda (x) (* x .98)))
+                      (setf (velocity inst) (cons-op '- (velocity inst) (cons 0 .1)))
+                      (gl:rotate rot-angle 0 0 1)
+                      (incf rot-angle rand-angle))))
+            (push falling-number (other-drawables game-state)))))
       ;; Append fallen chords to other drawables.
-      (setf od (append od fallen-chords)))
+      (setf od (append od fallen-chords))
+      ;; Show in scientific notation what the target was. These are not
+      ;; returned but pushed to game state right away.
+      (dolist (fc fallen-chords)
+        (dolist (fallen-note-expl (%chord-to-strings fc))
+          ;; Randomize the vel, pos, effects again (inherited from
+          ;; fallen chord)
+          (setf (velocity fallen-note-expl) (cons #1=(/ (- (random 20) 10) 5) #1#))
+          (setf (lifetime fallen-note-expl) 200)
+          (let ((rand-angle (/ (- (random 50) 25) 2)))
+            (setf (effects fallen-note-expl)
+                  (let ((rot-angle rand-angle)
+                        (scl 1.1))
+                    (lambda (inst)
+                      (color-fade-effect inst
+                                         :a (lambda (x) (* x .95))
+                                         :r (lambda (x) (+ x .05)))
+                      (gl:rotate rot-angle 0 0 1)
+                      (gl:scale scl scl 1)
+                      (incf rot-angle rand-angle)))))
+          (push fallen-note-expl (other-drawables game-state)))))
     (> (lives game-state) 0)))
 
 (defparameter *game-state* nil
@@ -697,8 +786,7 @@ order with CLEANUP- appended to them."
         (sdl2:gl-make-current win gl-context)
         (set-2d-projection *win-width* *win-height*)
         (gl:clear-color 1 1 1 1)
-        ;; TODO: If midi reader won't start, fall back to keyboard input.
-        (start-midi-reader-thread)
+        (start-midi-reader-thread (or *midi-device-pathname* (guess-midi-device-pathname)))
         (initialize-notewhacker)
 
         (gl:enable :blend)
@@ -730,6 +818,15 @@ order with CLEANUP- appended to them."
                          (sdl2:push-quit-event))
                        (when (sdl2:scancode= keysym :scancode-f1)
                          (setf *debug* (not *debug*)))
+                       (when (sdl2:scancode= keysym :scancode-f2)
+                         ;; Halt
+                         (setf (target-note-x-vel *game-state*) 0))
+                       (when (sdl2:scancode= keysym :scancode-f3)
+                         ;; Speed up
+                         (decf (target-note-x-vel *game-state*) 1))
+                       (when (sdl2:scancode= keysym :scancode-f12)
+                         ;; jump to debugger
+                         (break))
                        (setf extra-midi-events (handle-kbd-event t scancode mod-value))
                        (when (and *debug* extra-midi-events)
                            (format t "new events: ~a~%" extra-midi-events))))
