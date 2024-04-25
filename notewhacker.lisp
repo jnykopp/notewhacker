@@ -682,39 +682,48 @@ MAP-OF-MKN-SYM, return that matching symbol or nil if not found."
           :when (find (get-key event) map-of-mkn-sym :test #'= :key #'car)
           :return it)))
 
-(defun draw-choice (win score highscore)
+(defun draw-choice (win score highscore &optional hide-continuation)
   "Draw a screen to GL context window WIN which shows SCORE and
 HIGHSCORE, and gives the choice to continue the game or quit."
   ;; TODO: This is very rudimentary!
   (gl:clear-color 1 1 1 1)
-      (gl:clear :color-buffer-bit)
-      ;; TODO: Fixed coordinates
-      (gl:color 1 1 1 1)
-      (draw-string "Highscore:" 120 400)
-      (draw-string "Your score:" 120 360)
-      (draw-number highscore 400 400)
-      (draw-number score 400 360)
-      (draw-string "C-4: new game" 150 250)
-      (draw-string "G-4: quit game" 150 210)
-      (gl:flush)
-      (sdl2:gl-swap-window win))
+  (gl:clear :color-buffer-bit)
+  ;; TODO: Fixed coordinates
+  (gl:color 1 1 1 1)
+  (draw-string "Highscore:" 120 400)
+  (draw-string "Your score:" 120 360)
+  (draw-number highscore 400 400)
+  (draw-number score 400 360)
+  (unless hide-continuation
+    (draw-string "C-4: new game" 150 250)
+    (draw-string "G-4: quit game" 150 210))
+  (gl:flush)
+  (sdl2:gl-swap-window win))
 
 (defun gen-cont-choice (score)
   "Create a choice-state for choosing whether to play a new game or
   not. Returns a function which can be called with a GL context window
   and a list of new events."
-  (lambda (win new-events)
-    ;; mkn 60 = C4, mkn 67 = G4
-    (let ((choice (get-choice new-events '((60 . new-game) (67 . quit))))
-          (old-highscore *highscore*))
-      (when (> score *highscore*) (setf *highscore* score))
-      (draw-choice win score old-highscore)
-      (case choice
-        (new-game
-         (gen-countdown 3))
-        (quit
-         'quit) ;quit is a meta-state, will be recognized in main-loop
-        (otherwise nil)))))
+  (let ((generated-at-time (local-time:now)))
+    (lambda (win new-events)
+      ;; mkn 60 = C4, mkn 67 = G4
+      (let ((choice (get-choice new-events '((60 . new-game) (67 . quit))))
+            (old-highscore *highscore*)
+            (threshold-time-passed-p (> (local-time:timestamp-difference (local-time:now)
+                                                                         generated-at-time)
+                                        1.5)))
+        (when (> score *highscore*) (setf *highscore* score))
+        ;; Delay handling input and drawing the choice strings for a
+        ;; second to avoid someone hitting continue or quit by
+        ;; accident.
+        (draw-choice win score old-highscore (not threshold-time-passed-p))
+        (when threshold-time-passed-p
+          (case choice
+            (new-game
+             (gen-countdown 3))
+            (quit
+             'quit) ;quit is a meta-state, will be recognized in main-loop
+            (otherwise nil)))))))
 
 ;;; TODO: This map really only works for finnish/swedish
 ;;; keyboard. Should be done using scancodes in keyboard handling
