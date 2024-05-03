@@ -19,6 +19,13 @@
 
 (in-package #:notewhacker)
 
+(defparameter *midi-driver-type* '(jack oss)
+  "What type of midi input to use. First try the first one, then the
+second,
+etc.")
+
+(defparameter *curr-midi-driver* nil "What midi input is in use")
+
 (defparameter *debug* nil
   "Toggle on or off debugging features.")
 
@@ -640,6 +647,28 @@ Return t, if game should still continue."
                      (sdl2:gl-swap-window win)
                      nil)))))))
 
+(defun gen-jack-conn ()
+  "Generate a screen that instructs to connect midi in Jack. Return a
+function which can be called with a GL context window and a list of
+new events."
+  (lambda (win new-events)
+    (gl:clear-color 1 1 1 1)
+    (gl:clear :color-buffer-bit)
+    (gl:with-pushed-matrix
+      (gl:translate *draw-offset-x* *draw-offset-y* 0)
+      (gl:scale *scale-factor* *scale-factor* 1)
+      (if new-events
+          (gen-countdown 3)
+          (progn (gl:color 1 1 1 1)
+                 ;; TODO: Fixed coordinates
+                 (gl:with-pushed-matrix
+                   (gl:translate 180 300 0)
+                   (draw-string "Connect midi device in Jack" 0 0)
+                   (draw-string "and press any key on device" 0 -30))
+                 (gl:flush)
+                 (sdl2:gl-swap-window win)
+                 nil)))))
+
 (defun gen-game-loop ()
   "Create a new game loop state. Returns a function wich can be called
   with a GL context window and a list of new events."
@@ -714,7 +743,7 @@ HIGHSCORE, and gives the choice to continue the game or quit."
                                         1.5)))
         (when (> score *highscore*) (setf *highscore* score))
         ;; Delay handling input and drawing the choice strings for a
-        ;; second to avoid someone hitting continue or quit by
+        ;; while to avoid someone hitting continue or quit by
         ;; accident.
         (draw-choice win score old-highscore (not threshold-time-passed-p))
         (when threshold-time-passed-p
@@ -785,6 +814,33 @@ order with CLEANUP- appended to them."
     (dolist (f (reverse init-and-cleanup-functions))
       (funcall (intern (concatenate 'string (symbol-name 'cleanup-) (symbol-name f)) :notewhacker)))))
 
+(defun init-midi ()
+  "Initialize the chosen or preferred midi implementation. Return a
+function that generates a starting state for the game."
+  (let (start-state-gen)
+    (labels ((init-jack ()
+               (handler-case
+                   (when (jack-lib-init)
+                     (setf start-state-gen (lambda () (gen-jack-conn)))
+                     t)
+                 (error (e) (format t "Couldn't initialize Jack: ~a~%" e) nil)))
+             (init-oss ()
+               (handler-case
+                   (progn
+                     (start-midi-reader-thread
+                      (or *midi-device-pathname* (guess-midi-device-pathname)))
+                     t)
+                 (error (e) (format t "Coudn't initialize OSS midi: ~a~%" e) nil)))
+             (driver-to-fun (d) (ecase d (oss (function init-oss)) (jack (function init-jack)))))
+      (if *curr-midi-driver*
+          (funcall (driver-to-fun *curr-midi-driver*))
+          (loop :for midi-type :in *midi-driver-type*
+                :for succ := (funcall (driver-to-fun midi-type))
+                :when succ :return it))
+      (unless *curr-midi-driver*
+        (format t "No midi devices connected!~%")))
+    (or start-state-gen (lambda () (gen-countdown 3)))))
+
 (defun main ()
   ;; TODO: Read config.
   ;; Part of this code is derived from tutorial made by 3b
@@ -795,117 +851,119 @@ order with CLEANUP- appended to them."
         (sdl2:gl-make-current win gl-context)
         (set-2d-projection *win-width* *win-height*)
         (gl:clear-color 1 1 1 1)
-        (start-midi-reader-thread (or *midi-device-pathname* (guess-midi-device-pathname)))
-        (initialize-notewhacker)
 
-        (gl:enable :blend)
-        (gl:blend-func :src-alpha :one-minus-src-alpha)
-        (gl:enable :line-smooth)
-        (gl:hint :line-smooth-hint :nicest)
-        (gl:enable :point-smooth)
-        (gl:hint :point-smooth-hint :nicest)
-        (gl:enable :polygon-smooth)
-        (gl:hint :polygon-smooth-hint :nicest)
+        (let ((start-state-gen (init-midi)))
+          (initialize-notewhacker)
 
-        (setf *random-state* (make-random-state t))
+          (gl:enable :blend)
+          (gl:blend-func :src-alpha :one-minus-src-alpha)
+          (gl:enable :line-smooth)
+          (gl:hint :line-smooth-hint :nicest)
+          (gl:enable :point-smooth)
+          (gl:hint :point-smooth-hint :nicest)
+          (gl:enable :polygon-smooth)
+          (gl:hint :polygon-smooth-hint :nicest)
 
-        ;; TODO: Keyboard handling as a midi event generator is quite a
-        ;; hack right now.
-        (unwind-protect
-             (let (;; TODO: Now starts from the countdown. Should have a
-                   ;; game menu as the beginning point.
-                   (current-state (gen-countdown 3))
-                   extra-midi-events       ;This is for kbd debugging
-                   window-resize-requested ;nil if no resize, else (tick (new-x . new-y))
-                   (prev-frame-ticks 0))
-               (sdl2:with-event-loop (:method :poll)
-                 (:quit () t)
-                 (:keydown (:keysym keysym)
-                     (let ((scancode (sdl2:scancode-value keysym))
-                           (mod-value (sdl2:mod-value keysym)))
-                       (when (sdl2:scancode= keysym :scancode-escape)
-                         (sdl2:push-quit-event))
-                       (when (sdl2:scancode= keysym :scancode-f1)
-                         (setf *debug* (not *debug*)))
-                       (when (sdl2:scancode= keysym :scancode-f2)
-                         ;; Halt
-                         (setf (target-note-x-vel *game-state*) 0))
-                       (when (sdl2:scancode= keysym :scancode-f3)
-                         ;; Speed up
-                         (decf (target-note-x-vel *game-state*) 1))
-                       (when (sdl2:scancode= keysym :scancode-f12)
-                         ;; jump to debugger
-                         (break))
-                       (setf extra-midi-events (handle-kbd-event t scancode mod-value))
-                       (when (and *debug* extra-midi-events)
-                           (format t "new events: ~a~%" extra-midi-events))))
-                 (:keyup (:keysym keysym)
-                     (let ((scancode (sdl2:scancode-value keysym))
-                           (mod-value (sdl2:mod-value keysym)))
-                       ;; This case needed only for kbd debugging!
-                       (setf extra-midi-events (handle-kbd-event nil scancode mod-value))
-                       (when (and *debug* extra-midi-events)
-                         (format t "new events: ~a~%" extra-midi-events))))
-                 (:windowevent (:event evtype :data1 data1 :data2 data2)
-                       ;; There's also evtype
-                       ;; `sdl2-ffi:+sdl-windowevent-resized' - see
-                       ;; https://wiki.libsdl.org/SDL2/SDL_WindowEventID. We
-                       ;; use size changed as it seems to be more
-                       ;; generic.
-                       (when (= evtype sdl2-ffi:+sdl-windowevent-size-changed+)
-                         (setf window-resize-requested (list (sdl2:get-ticks) (cons data1 data2)))
-                         (when *debug*
-                           (format t "Got size change window event type ~a, data1 ~a, data2 ~a~%"
-                                   evtype data1 data2))))
-                 (:idle ()
-                        ;; Update screen only at about 60 FPS (16
-                        ;; milliseconds between frames) because that's
-                        ;; what the `game-state-step' expects.
-                        (if (> (- (sdl2:get-ticks) prev-frame-ticks) 15)
-                            (progn
-                              (when (and window-resize-requested
-                                         (> (- (sdl2:get-ticks) (car window-resize-requested)) 100))
-                                ;; Resize drawing blocks if necessary,
-                                ;; but only if >100 ms have passed from
-                                ;; latest request.
-                                (destructuring-bind (w . h) (cadr window-resize-requested)
-                                  (setf *win-width* w *win-height* h)
-                                  (let ((min-w (* h *target-display-ratio*))
-                                        (min-h (floor w *target-display-ratio*)))
-                                    (setf *draw-offset-x* (if (> w min-w) (floor (- w min-w) 2) 0)
-                                          *draw-offset-y* (if (> h min-h) (floor (- h min-h) 2) 0)
-                                          *scale-factor* (min (/ min-w *virtual-width*)
-                                                              (/ min-h *virtual-height*)))))
-                                (when *debug*
-                                  (format t "Window resize: w: ~a, h: ~a; target-ratio ~a; ~
+          (setf *random-state* (make-random-state t))
+
+          ;; TODO: Keyboard handling as a midi event generator is quite a
+          ;; hack right now.
+          (unwind-protect
+               (let (;; TODO: Now starts from the countdown. Should have a
+                     ;; game menu as the beginning point.
+                     (current-state (funcall start-state-gen))
+                     extra-midi-events       ;This is for kbd debugging
+                     window-resize-requested ;nil if no resize, else (tick (new-x . new-y))
+                     (prev-frame-ticks 0))
+                 (sdl2:with-event-loop (:method :poll)
+                   (:quit () t)
+                   (:keydown (:keysym keysym)
+                             (let ((scancode (sdl2:scancode-value keysym))
+                                   (mod-value (sdl2:mod-value keysym)))
+                               (when (sdl2:scancode= keysym :scancode-escape)
+                                 (sdl2:push-quit-event))
+                               (when (sdl2:scancode= keysym :scancode-f1)
+                                 (setf *debug* (not *debug*)))
+                               (when (sdl2:scancode= keysym :scancode-f2)
+                                 ;; Halt
+                                 (setf (target-note-x-vel *game-state*) 0))
+                               (when (sdl2:scancode= keysym :scancode-f3)
+                                 ;; Speed up
+                                 (decf (target-note-x-vel *game-state*) 1))
+                               (when (sdl2:scancode= keysym :scancode-f12)
+                                 ;; jump to debugger
+                                 (break))
+                               (setf extra-midi-events (handle-kbd-event t scancode mod-value))
+                               (when (and *debug* extra-midi-events)
+                                 (format t "new events: ~a~%" extra-midi-events))))
+                   (:keyup (:keysym keysym)
+                           (let ((scancode (sdl2:scancode-value keysym))
+                                 (mod-value (sdl2:mod-value keysym)))
+                             ;; This case needed only for kbd debugging!
+                             (setf extra-midi-events (handle-kbd-event nil scancode mod-value))
+                             (when (and *debug* extra-midi-events)
+                               (format t "new events: ~a~%" extra-midi-events))))
+                   (:windowevent (:event evtype :data1 data1 :data2 data2)
+                                 ;; There's also evtype
+                                 ;; `sdl2-ffi:+sdl-windowevent-resized' - see
+                                 ;; https://wiki.libsdl.org/SDL2/SDL_WindowEventID. We
+                                 ;; use size changed as it seems to be more
+                                 ;; generic.
+                                 (when (= evtype sdl2-ffi:+sdl-windowevent-size-changed+)
+                                   (setf window-resize-requested (list (sdl2:get-ticks) (cons data1 data2)))
+                                   (when *debug*
+                                     (format t "Got size change window event type ~a, data1 ~a, data2 ~a~%"
+                                             evtype data1 data2))))
+                   (:idle ()
+                          ;; Update screen only at about 60 FPS (16
+                          ;; milliseconds between frames) because that's
+                          ;; what the `game-state-step' expects.
+                          (if (> (- (sdl2:get-ticks) prev-frame-ticks) 15)
+                              (progn
+                                (when (and window-resize-requested
+                                           (> (- (sdl2:get-ticks) (car window-resize-requested)) 100))
+                                  ;; Resize drawing blocks if necessary,
+                                  ;; but only if >100 ms have passed from
+                                  ;; latest request.
+                                  (destructuring-bind (w . h) (cadr window-resize-requested)
+                                    (setf *win-width* w *win-height* h)
+                                    (let ((min-w (* h *target-display-ratio*))
+                                          (min-h (floor w *target-display-ratio*)))
+                                      (setf *draw-offset-x* (if (> w min-w) (floor (- w min-w) 2) 0)
+                                            *draw-offset-y* (if (> h min-h) (floor (- h min-h) 2) 0)
+                                            *scale-factor* (min (/ min-w *virtual-width*)
+                                                                (/ min-h *virtual-height*)))))
+                                  (when *debug*
+                                    (format t "Window resize: w: ~a, h: ~a; target-ratio ~a; ~
                                              scale: ~a, draw-offsets: (~a, ~a)~%"
-                                          *win-width* *win-height* *target-display-ratio*
-                                          *scale-factor* *draw-offset-x* *draw-offset-y*))
-                                (set-2d-projection *win-width* *win-height*)
-                                (clear-texture-entity-cache)
-                                (setf window-resize-requested nil))
-                              (setf prev-frame-ticks (sdl2:get-ticks))
-                              (let* ((new-events
-                                      ;; Concatenate extra-midi-events for kbd
-                                      ;; debugging.
-                                      (handle-midi-events-and-notify
-                                       (prog1 (concatenate 'list extra-midi-events
-                                                           (get-new-midi-events))
-                                         (setf extra-midi-events nil))))
-                                     (new-state (funcall current-state win new-events)))
-                                (if (eq new-state 'quit) ;quit is a special state
-                                    (sdl2:push-quit-event)
-                                    (when new-state (setf current-state new-state)))))
-                            ;; TODO: A hack to prevent 100% CPU usage
-                            ;; with the cl-sdl2. Running the idle loop
-                            ;; just banging the `sdl2:get-ticks' will
-                            ;; drain all CPU. Instead, delay until
-                            ;; it's time for next frame. (The earlier
-                            ;; library, lispbuilder-sdl, had a
-                            ;; built-in FPS limiter that did this
-                            ;; automatically. Perhaps it's time to
-                            ;; check out sdl2.kit or something.)
-                            (sdl2:delay (max 0 (- (sdl2:get-ticks) prev-frame-ticks 1)))))))
-          (stop-midi-reader-thread)
-          (cleanup-notewhacker)
-          (clear-texture-entity-cache))))))
+                                            *win-width* *win-height* *target-display-ratio*
+                                            *scale-factor* *draw-offset-x* *draw-offset-y*))
+                                  (set-2d-projection *win-width* *win-height*)
+                                  (clear-texture-entity-cache)
+                                  (setf window-resize-requested nil))
+                                (setf prev-frame-ticks (sdl2:get-ticks))
+                                (let* ((new-events
+                                         ;; Concatenate extra-midi-events for kbd
+                                         ;; debugging.
+                                         (handle-midi-events-and-notify
+                                          (prog1 (concatenate 'list extra-midi-events
+                                                              (get-new-midi-events))
+                                            (setf extra-midi-events nil))))
+                                       (new-state (funcall current-state win new-events)))
+                                  (if (eq new-state 'quit) ;quit is a special state
+                                      (sdl2:push-quit-event)
+                                      (when new-state (setf current-state new-state)))))
+                              ;; TODO: A hack to prevent 100% CPU usage
+                              ;; with the cl-sdl2. Running the idle loop
+                              ;; just banging the `sdl2:get-ticks' will
+                              ;; drain all CPU. Instead, delay until
+                              ;; it's time for next frame. (The earlier
+                              ;; library, lispbuilder-sdl, had a
+                              ;; built-in FPS limiter that did this
+                              ;; automatically. Perhaps it's time to
+                              ;; check out sdl2.kit or something.)
+                              (sdl2:delay (max 0 (- (sdl2:get-ticks) prev-frame-ticks 1)))))))
+            (when (eq 'oss *curr-midi-driver*)
+              (stop-midi-reader-thread))
+            (cleanup-notewhacker)
+            (clear-texture-entity-cache)))))))

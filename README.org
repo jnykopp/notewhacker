@@ -6,13 +6,11 @@
   your computer. Start Notewhacker and try to hit your instrument's
   keys matching the notes scrolling on a staff on your screen.
 
-  2024-03-28, version 0.0.4 (See [[CHANGELOG.org]])
+  2024-05-03, version 0.0.5 (See [[CHANGELOG.org]])
 
 * Installing and running
 
-  Download the software (e.g. clone from git). Modify =midi.lisp= file
-  so that =*midi-device-pathname*= points to the OSS-compatible device
-  file which corresponds your General Midi instrument.
+  Download the software (e.g. clone from git).
 
   Easiest way to get the software running is to use [[http://www.quicklisp.org/][Quicklisp]]:
   - Install Quicklisp, if not installed already. (Rest of the steps
@@ -23,23 +21,30 @@
     automatically download and compile the dependencies and compile
     Notewhacker.
   - Start the program with ~(notewhacker:main)~.
+    - Notewhacker tries to guess the midi instrument. If you use [[https://jackaudio.org/][JACK]],
+      you need to connect your instrument to Notewhacker, e.g.  with
+      ~qjackctl~. If you use OSS, you may need to set
+      ~*midi-device-pathname*~ to the path to the midi device of your
+      choice (e.g. =/dev/midi4=).
   - After initial installation, you can load Quicklisp in your Lisp
     repl with ~(load "~/quicklisp/setup.lisp")~ before loading
     Notewhacker, e.g. in SBCL:
- : $ sbcl
- : ...
- : * (load "~/quicklisp/setup.lisp")
- : T
- : * (ql:quickload "notewhacker")
- : ...
- : ("notewhacker")
- : * (notewhacker:main)
+  : $ sbcl
+  : ...
+  : * (load "~/quicklisp/setup.lisp")
+  : T
+  : * (ql:quickload "notewhacker")
+  : ...
+  : ("notewhacker")
+  : * (notewhacker:main)
 
 ** System requirements
 
    - Reasonably recent Linux operating system (might work on other
      Unixes too)
-     - [[http://www.opensound.com/][OSS]] or [[http://www.alsa-project.org/main/index.php/Main_Page][ALSA]]
+     - Audio:
+       - Either [[https://jackaudio.org][JACK]] (or [[https://pipewire.org/][Pipewire]] which is default in modern Linux)
+       - Or [[http://www.opensound.com/][OSS]] or [[http://www.alsa-project.org/main/index.php/Main_Page][ALSA]] with OSS emulation turned on
      - [[http://www.libsdl.org/][Simple Directmedia Layer]] version 2.0 system library
    - OpenGL 2.0 compatible graphics card and drivers
      - Related libraries for Linux
@@ -53,8 +58,8 @@
    generators but rely on computer to produce sound.
 
    One solution to hear the notes you play in Notewhacker is that you
-   could start e.g. [[http://jackaudio.org/][JACK]] and route MIDI data to both OSS device file
-   for Notewhacker, and to a software synthesizer.
+   could start e.g. [[http://jackaudio.org/][JACK]] and route MIDI data to both Notewhacker or
+   OSS device file for Notewhacker, and to a software synthesizer.
 
    If you don't want to study how to use JACK, I implemented a
    MIDI-thru system. To enable it, first create a FIFO with terminal
@@ -93,7 +98,7 @@
    instruments; all data is routed through the MIDI-thru, not just the
    messages Notewhacker understands.)
 
-   This has only been tested with SBCL.
+   The MIDI-thru has only been tested with SBCL.
 
 ** Changing the visible staffs and midi channels
 

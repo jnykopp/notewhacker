@@ -29,10 +29,14 @@
                #:vecto
                #:sdl2
                #:fiveam
-               #:local-time)
+               #:local-time
+               #:cffi)
   :components ((:file "package")
                (:file "graphics")
                (:file "midi")
+               (:file "oss-midi")
+               (:file "jack-cffi")
+               (:file "jack-midi")
                (:file "notation")
                (:file "matcher")
                (:file "notewhacker")))
