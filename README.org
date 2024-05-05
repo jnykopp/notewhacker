@@ -41,64 +41,16 @@
 ** System requirements
 
    - Reasonably recent Linux operating system (might work on other
-     Unixes too)
+     Unixes too, incl. MacOS, and maybe even on Windows)
      - Audio:
        - Either [[https://jackaudio.org][JACK]] (or [[https://pipewire.org/][Pipewire]] which is default in modern Linux)
        - Or [[http://www.opensound.com/][OSS]] or [[http://www.alsa-project.org/main/index.php/Main_Page][ALSA]] with OSS emulation turned on
      - [[http://www.libsdl.org/][Simple Directmedia Layer]] version 2.0 system library
    - OpenGL 2.0 compatible graphics card and drivers
      - Related libraries for Linux
-   - [[http://ccl.clozure.com/][Clozure Common Lisp]] or [[http://www.sbcl.org/][SBCL]] implementation of Common Lisp (see
-     [[Known bugs]], though)
+   - [[http://ccl.clozure.com/][Clozure Common Lisp]] or [[http://www.sbcl.org/][SBCL]] implementation of Common Lisp
    - General Midi compatible musical instrument or some such
-
-** Getting sound out from your controller
-
-   Some MIDI controller keyboards do not have their own tone
-   generators but rely on computer to produce sound.
-
-   One solution to hear the notes you play in Notewhacker is that you
-   could start e.g. [[http://jackaudio.org/][JACK]] and route MIDI data to both Notewhacker or
-   OSS device file for Notewhacker, and to a software synthesizer.
-
-   If you don't want to study how to use JACK, I implemented a
-   MIDI-thru system. To enable it, first create a FIFO with terminal
-   command:
-   : mkfifo $HOME/midi-thru
-
-   (Or if you want to change the FIFO's name, modify also the
-   ~*midi-thru-pathname*~ variable in =midi.lisp=.)
-
-   Then add ~:notewhacker-midi-thru~ to ~*FEATURES*~ and compile
-   Notewhacker again; i.e. do the following in your Lisp repl:
-   : * (pushnew :notewhacker-midi-thru *features*)
-   : ... [some output which depends on your system] ...
-   : * (asdf:load-system :notewhacker :force t)
-   : ... [lots of output] ...
-
-   Then, install a software synthesizer, e.g. fluidsynth (and some
-   soundfonts). Start it:
-   : fluidsynth -a oss -m oss -o midi.oss.device=$HOME/midi-thru /usr/share/sounds/sf2/FluidR3_GM.sf2
-
-   (The ~/usr/share/sounds/sf2/FluidR3_GM.sf2~ part depends on where
-   you have the soundfonts installed.)
-
-   If you're running on a system with PulseAudio, you may need to run:
-   : padsp fluidsynth -a oss -m oss -o midi.oss.device=$HOME/midi-thru /usr/share/sounds/sf2/FluidR3_GM.sf2
-
-   (Or if on a system with Alsa, replace ~padsp~ with ~ossd~.)
-
-   To get a graphical UI, you can replace ~fluidsynth~ with ~qsynth~
-   in the commands above. (For me, ~qsynth~ has distorted audio from
-   the box, I guess some parameters should be tuned. ~fluidsynth~
-   sounds crystal clear, though.)
-
-   Then start Notewhacker normally and enjoy the sounds! (Use normal
-   program change controls to choose different General Midi
-   instruments; all data is routed through the MIDI-thru, not just the
-   messages Notewhacker understands.)
-
-   The MIDI-thru has only been tested with SBCL.
+     - For quick testing a virtual keyboard like [[https://github.com/tiwai/vkeybd][vkeybd]] is sufficient
 
 ** Changing the visible staffs and midi channels
 
@@ -117,6 +69,57 @@
      note, =F= to C4 sharp etc. When hit while holding left shift they
      generate midi channel 1 events, channel 0 otherwise. For testing
      purposes; game can't be played reasonably using keyboard.
+
+** Getting sound out from your controller
+
+   Notewhacker doesn't output sound by itself but assumes your
+   instrument generates sound.
+
+   However, some MIDI controller keyboards do not have their own tone
+   generators but rely on another MIDI device (e.g. a computer) to
+   produce sound.
+
+   One solution to hear the notes you play in Notewhacker is that you
+   could start a software synthesizer like e.g. [[https://www.fluidsynth.org/][fluidsynth]] and route
+   the MIDI data to both Notewhacker and the software synth.
+   Preferred way to do this is to utilize Notewhacker's [[http://jackaudio.org/][JACK]]
+   interface, as JACK makes routing very easy.
+
+*** MIDI routing on OSS only system
+
+    If, however, you need to use OSS only, I implemented a MIDI-thru
+    system. To enable it, first create a FIFO with terminal command:
+    : mkfifo $HOME/midi-thru
+
+    (Or if you want to change the FIFO's name, modify also the
+    ~*midi-thru-pathname*~ variable in =oss-midi.lisp=.)
+
+    Then add ~:notewhacker-midi-thru~ to ~*FEATURES*~ and compile
+    Notewhacker again; i.e. do the following in your Lisp repl:
+    : * (pushnew :notewhacker-midi-thru *features*)
+    : ... [some output which depends on your system] ...
+    : * (asdf:load-system :notewhacker :force t)
+    : ... [lots of output] ...
+
+    Then, install a software synthesizer, e.g. fluidsynth (and some
+    soundfonts). Start it and force it to use OSS:
+    : fluidsynth -a oss -m oss -o midi.oss.device=$HOME/midi-thru /usr/share/sounds/sf2/FluidR3_GM.sf2
+
+    (The ~/usr/share/sounds/sf2/FluidR3_GM.sf2~ part depends on where
+    you have the soundfonts installed.)
+
+    If you're running on a system with PulseAudio, you may need to run:
+    : padsp fluidsynth -a oss -m oss -o midi.oss.device=$HOME/midi-thru /usr/share/sounds/sf2/FluidR3_GM.sf2
+
+    (Or if on a system with Alsa, replace ~padsp~ with ~ossd~.)
+
+    To get a graphical UI, you can replace ~fluidsynth~ with ~qsynth~
+    in the commands above.
+
+    Then start Notewhacker normally and enjoy the sounds! (You can use
+    normal program change controls to choose different General Midi
+    instruments; all data is routed through the MIDI-thru, not just
+    the messages Notewhacker understands.)
 
 * Demo
 
@@ -164,11 +167,6 @@
   4200M. The software was developed using Intel HD4000 graphics card,
   and VirtualBox with Windows host OS and Intel HD 530 graphics card,
   which don't expose this bug.
-
-  With [[http://ccl.clozure.com/][Clozure Common Lisp]] (at least version 1.11.5), I get "floating
-  point exception" when running Notewhacker, or any examples from
-  [[https://github.com/lispgames/cl-sdl2][cl-sdl2]]. Hence, the versions newer than 2017-12-30 haven't been
-  tested with CCL.
 
 * Author
 
